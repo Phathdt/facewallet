@@ -210,6 +210,15 @@ export function PRFTest() {
             <div className="flex gap-3">
               <Info className="h-5 w-5 shrink-0 text-blue-600" />
               <div className="text-sm text-blue-900">
+                <p className="mb-2 font-medium">⚠️ Browser Compatibility:</p>
+                <p className="mb-3 text-blue-700">
+                  PRF extension is currently only supported on:
+                </p>
+                <ul className="list-inside list-disc space-y-1 text-blue-700 mb-3">
+                  <li><strong>Chrome/Edge on macOS/Windows</strong> (with platform authenticator)</li>
+                  <li><strong>Safari 17+</strong> (limited support)</li>
+                  <li><strong>NOT supported on iPhone/iOS</strong> browsers yet</li>
+                </ul>
                 <p className="mb-2 font-medium">Test Instructions:</p>
                 <ol className="list-inside list-decimal space-y-1 text-blue-700">
                   <li>
@@ -364,7 +373,11 @@ export function PRFTest() {
           </h2>
           <div className="space-y-2 text-sm text-gray-700">
             <p>
-              <strong>PRF Salt:</strong> <code>"prf-test-salt"</code>
+              <strong>PRF Salt (Create New):</strong> <code>"prf-test-salt"</code>
+            </p>
+            <p>
+              <strong>PRF Salt (Existing):</strong>{' '}
+              <code>"ecdsa-signing-key-v1"</code>
             </p>
             <p>
               <strong>Key Derivation:</strong> Private key is first 64 hex chars
@@ -378,6 +391,17 @@ export function PRFTest() {
               This test helps verify whether PRF output is deterministic across
               devices or device-specific (using device Secure Enclave/TPM).
             </p>
+            <div className="mt-4 rounded-md border border-yellow-200 bg-yellow-50 p-3">
+              <p className="text-sm font-medium text-yellow-800 mb-2">
+                Why PRF is Not Supported Everywhere:
+              </p>
+              <p className="text-sm text-yellow-700">
+                The PRF extension is a newer WebAuthn feature that requires
+                platform authenticator support. iOS/iPhone browsers don't support
+                PRF yet, which is why FaceWallet uses PIN-based key derivation
+                instead of PRF-based for cross-device compatibility.
+              </p>
+            </div>
           </div>
         </div>
       </div>
