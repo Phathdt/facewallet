@@ -1,4 +1,4 @@
-import { ethers, keccak256, concat } from 'ethers'
+import { ethers, keccak256 } from 'ethers'
 import type { SignerConfig } from './types'
 
 export class PasskeyECDSASigner {
@@ -14,7 +14,7 @@ export class PasskeyECDSASigner {
       rpId: shouldOmitRpId
         ? undefined
         : config?.rpId || import.meta.env.VITE_RP_ID || undefined,
-      prfSalt: config?.prfSalt || 'ecdsa-signing-key-v1',
+      prfSalt: config?.prfSalt || 'ecdsa-signing-key-v1', // Kept for backwards compatibility but not used
       ...config,
     }
   }
@@ -65,6 +65,7 @@ export class PasskeyECDSASigner {
 
   /**
    * Register a new passkey for a wallet address and derive signing key
+   * Uses PRF(sha256(PIN)) approach for higher security
    */
   async register(
     walletAddress: string,
@@ -78,6 +79,12 @@ export class PasskeyECDSASigner {
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
       throw new Error('PIN must be exactly 6 digits')
     }
+
+    // Step 1: Hash PIN to create deterministic PRF input
+    const pinHash = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(pin)
+    )
 
     const challenge = crypto.getRandomValues(new Uint8Array(32))
     const userId = crypto.getRandomValues(new Uint8Array(16))
@@ -95,6 +102,7 @@ export class PasskeyECDSASigner {
       rp.id = this.config.rpId
     }
 
+    // Step 2: Create passkey with PRF enabled using PIN hash as input
     const credential = (await navigator.credentials.create({
       publicKey: {
         challenge,
@@ -116,14 +124,14 @@ export class PasskeyECDSASigner {
         extensions: {
           prf: {
             eval: {
-              first: new TextEncoder().encode(this.config.prfSalt),
+              first: pinHash, // Deterministic input from PIN
             },
           },
         },
       },
     })) as PublicKeyCredential
 
-    // Check PRF extension is enabled (for biometric authentication)
+    // Check PRF extension is enabled
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const extensionResults = credential.getClientExtensionResults() as any
     const prfEnabled = extensionResults.prf?.enabled
@@ -132,13 +140,50 @@ export class PasskeyECDSASigner {
       throw new Error('PRF extension not supported')
     }
 
-    // Derive private key from Credential ID + PIN (deterministic across devices)
-    const credentialIdBytes = new Uint8Array(credential.rawId)
-    const pinBytes = new TextEncoder().encode(pin)
-    const combined = concat([credentialIdBytes, pinBytes])
-    const privateKeyHex = keccak256(combined)
+    // Step 3: Immediately authenticate to get PRF output
+    // (PRF only returns output on .get(), not .create())
+    const getOptions: PublicKeyCredentialRequestOptions = {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [
+        {
+          id: credential.rawId,
+          type: 'public-key',
+        },
+      ],
+      userVerification: 'required',
+      timeout: 60000,
+      extensions: {
+        prf: {
+          eval: {
+            first: pinHash, // Same input as registration
+          },
+        },
+      },
+    }
 
-    // Create wallet from PIN-derived key
+    // Only include rpId if it's defined
+    if (this.config.rpId) {
+      getOptions.rpId = this.config.rpId
+    }
+
+    const assertion = (await navigator.credentials.get({
+      publicKey: getOptions,
+    })) as PublicKeyCredential
+
+    // Step 4: Get PRF output
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const assertionResults = assertion.getClientExtensionResults() as any
+    const prfResult = assertionResults.prf
+
+    if (!prfResult?.results?.first) {
+      throw new Error('PRF output not available')
+    }
+
+    // Step 5: Derive private key from PRF output
+    const prfOutput = new Uint8Array(prfResult.results.first)
+    const privateKeyHex = keccak256(prfOutput)
+
+    // Create wallet from PRF-derived key
     const wallet = new ethers.Wallet(privateKeyHex)
 
     return {
@@ -150,6 +195,7 @@ export class PasskeyECDSASigner {
 
   /**
    * Authenticate with existing passkey and derive signing key
+   * Uses PRF(sha256(PIN)) approach for higher security
    * Note: walletAddress parameter kept for API compatibility but not used
    */
   async authenticate(
@@ -165,6 +211,12 @@ export class PasskeyECDSASigner {
       throw new Error('PIN must be exactly 6 digits')
     }
 
+    // Step 1: Hash PIN to create deterministic PRF input (same as registration)
+    const pinHash = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(pin)
+    )
+
     const challenge = crypto.getRandomValues(new Uint8Array(32))
 
     // Build options object conditionally
@@ -175,7 +227,7 @@ export class PasskeyECDSASigner {
       extensions: {
         prf: {
           eval: {
-            first: new TextEncoder().encode(this.config.prfSalt),
+            first: pinHash, // Deterministic input from PIN
           },
         },
       },
@@ -186,12 +238,13 @@ export class PasskeyECDSASigner {
       getOptions.rpId = this.config.rpId
     }
 
+    // Step 2: Authenticate with biometric
     const assertion = (await navigator.credentials.get({
       publicKey: getOptions,
       mediation: 'optional', // Show browser's passkey picker
     })) as PublicKeyCredential
 
-    // Verify PRF worked (for biometric authentication)
+    // Step 3: Get PRF output
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const extensionResults = assertion.getClientExtensionResults() as any
     const prfResult = extensionResults.prf
@@ -200,13 +253,11 @@ export class PasskeyECDSASigner {
       throw new Error('Authentication failed')
     }
 
-    // Derive private key from Credential ID + PIN (same as register)
-    const credentialIdBytes = new Uint8Array(assertion.rawId)
-    const pinBytes = new TextEncoder().encode(pin)
-    const combined = concat([credentialIdBytes, pinBytes])
-    const privateKeyHex = keccak256(combined)
+    // Step 4: Derive private key from PRF output
+    const prfOutput = new Uint8Array(prfResult.results.first)
+    const privateKeyHex = keccak256(prfOutput)
 
-    // Create wallet from PIN-derived key
+    // Create wallet from PRF-derived key
     const wallet = new ethers.Wallet(privateKeyHex)
 
     return {
