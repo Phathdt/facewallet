@@ -30,7 +30,6 @@ export function SignMessage() {
       const sig = await signMessageAsync({ message })
       setSignature(sig)
     } catch (error) {
-      console.error('Failed to sign message:', error)
       setError(
         error instanceof Error ? error.message : 'Failed to sign message'
       )
@@ -56,27 +55,11 @@ export function SignMessage() {
       // Use context's authenticate with empty PIN (will use cached wallet)
       const wallet = await authenticate('')
 
-      // DEBUG: Log message signing details
-      console.log('=== Message Signing Debug ===')
-      console.log('Message to sign:', message)
-      console.log('Message length:', message.length)
-      console.log('Message bytes:', new TextEncoder().encode(message))
-      console.log('Wallet address:', wallet.address)
-      console.log('=============================')
-
       // Sign message with cached or newly authenticated wallet
       const sig = await wallet.signMessage(message)
 
-      // DEBUG: Log signature result
-      console.log('=== Signature Result ===')
-      console.log('Signature:', sig)
-      console.log('Signature length:', sig.length)
-      console.log('Message that was signed:', message)
-      console.log('========================')
-
       setSignature(sig)
     } catch (error) {
-      console.error('Failed to sign with passkey:', error)
       setError(
         error instanceof Error ? error.message : 'Failed to sign with passkey'
       )

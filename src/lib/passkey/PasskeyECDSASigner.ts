@@ -1,14 +1,10 @@
 import { ethers, keccak256, concat } from 'ethers'
-import { PasskeyStorage } from './storage'
-import type { PasskeyCredential, SignerConfig } from './types'
+import type { SignerConfig } from './types'
 
 export class PasskeyECDSASigner {
-  private storage: PasskeyStorage
   private config: SignerConfig
 
   constructor(config?: Partial<SignerConfig>) {
-    this.storage = new PasskeyStorage()
-
     // For Vercel deployments (vercel.app), don't specify rpId
     // Let it default to the current origin's effective domain
     const shouldOmitRpId = window.location.hostname.endsWith('.vercel.app')
@@ -21,22 +17,6 @@ export class PasskeyECDSASigner {
       prfSalt: config?.prfSalt || 'ecdsa-signing-key-v1',
       ...config,
     }
-
-    // DEBUG LOGGING
-    console.log('=== PasskeyECDSASigner Configuration ===')
-    console.log('Environment Variables:')
-    console.log('  VITE_RP_NAME:', import.meta.env.VITE_RP_NAME)
-    console.log('  VITE_RP_ID:', import.meta.env.VITE_RP_ID)
-    console.log('Window Location:')
-    console.log('  hostname:', window.location.hostname)
-    console.log('  origin:', window.location.origin)
-    console.log('  href:', window.location.href)
-    console.log('Is Vercel deployment:', shouldOmitRpId)
-    console.log('Final Config:')
-    console.log('  rpName:', this.config.rpName)
-    console.log('  rpId:', this.config.rpId || '(omitted - will use origin)')
-    console.log('  prfSalt:', this.config.prfSalt)
-    console.log('=======================================')
   }
 
   /**
@@ -105,123 +85,75 @@ export class PasskeyECDSASigner {
     // Truncate address for display: 0x1234...abcd
     const truncatedAddress = `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
 
-    // DEBUG LOGGING
-    console.log('=== Passkey Registration ===')
-    console.log('Wallet Address:', walletAddress)
-    console.log('Challenge:', challenge)
-    console.log('RP ID:', this.config.rpId || '(omitted)')
-    console.log('RP Name:', this.config.rpName)
-    console.log('Window hostname:', window.location.hostname)
-    console.log('============================')
+    // Build rp object conditionally
+    const rp: { name: string; id?: string } = {
+      name: this.config.rpName,
+    }
 
-    try {
-      // Build rp object conditionally
-      const rp: { name: string; id?: string } = {
-        name: this.config.rpName,
-      }
+    // Only include id if it's defined
+    if (this.config.rpId) {
+      rp.id = this.config.rpId
+    }
 
-      // Only include id if it's defined
-      if (this.config.rpId) {
-        rp.id = this.config.rpId
-      }
-
-      console.log('RP object:', rp)
-
-      const credential = (await navigator.credentials.create({
-        publicKey: {
-          challenge,
-          rp,
-          user: {
-            id: userId,
-            name: truncatedAddress,
-            displayName: `Passkey for ${truncatedAddress}`,
-          },
-          pubKeyCredParams: [
-            { type: 'public-key', alg: -7 }, // ES256
-            { type: 'public-key', alg: -257 }, // RS256
-          ],
-          authenticatorSelection: {
-            authenticatorAttachment: 'platform',
-            residentKey: 'required',
-            userVerification: 'required',
-          },
-          extensions: {
-            prf: {
-              eval: {
-                first: new TextEncoder().encode(this.config.prfSalt),
-              },
+    const credential = (await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp,
+        user: {
+          id: userId,
+          name: truncatedAddress,
+          displayName: `Passkey for ${truncatedAddress}`,
+        },
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 }, // ES256
+          { type: 'public-key', alg: -257 }, // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          residentKey: 'required',
+          userVerification: 'required',
+        },
+        extensions: {
+          prf: {
+            eval: {
+              first: new TextEncoder().encode(this.config.prfSalt),
             },
           },
         },
-      })) as PublicKeyCredential
+      },
+    })) as PublicKeyCredential
 
-      console.log('✅ Passkey created successfully!')
+    // Check PRF extension is enabled (for biometric authentication)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const extensionResults = credential.getClientExtensionResults() as any
+    const prfEnabled = extensionResults.prf?.enabled
 
-      // Check PRF extension is enabled (for biometric authentication)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const extensionResults = credential.getClientExtensionResults() as any
-      const prfEnabled = extensionResults.prf?.enabled
+    if (!prfEnabled) {
+      throw new Error('PRF extension not supported')
+    }
 
-      if (!prfEnabled) {
-        throw new Error('PRF extension not supported')
-      }
+    // Derive private key from Credential ID + PIN (deterministic across devices)
+    const credentialIdBytes = new Uint8Array(credential.rawId)
+    const pinBytes = new TextEncoder().encode(pin)
+    const combined = concat([credentialIdBytes, pinBytes])
+    const privateKeyHex = keccak256(combined)
 
-      // Derive private key from Credential ID + PIN (deterministic across devices)
-      const credentialIdBytes = new Uint8Array(credential.rawId)
-      const pinBytes = new TextEncoder().encode(pin)
-      const combined = concat([credentialIdBytes, pinBytes])
-      const privateKeyHex = keccak256(combined)
+    // Create wallet from PIN-derived key
+    const wallet = new ethers.Wallet(privateKeyHex)
 
-      // Create wallet from PIN-derived key
-      const wallet = new ethers.Wallet(privateKeyHex)
-
-      // DEBUG: Log PIN-based key derivation
-      console.log('=== PIN-Based Key Derivation (REGISTER) ===')
-      console.log(
-        'Credential ID (hex):',
-        Buffer.from(credentialIdBytes).toString('hex').substring(0, 20) + '...'
-      )
-      console.log('PIN length:', pin.length)
-      console.log(
-        'Private Key (first 10 chars):',
-        privateKeyHex.substring(0, 10) + '...'
-      )
-      console.log('Derived Address:', wallet.address)
-      console.log('PRF Enabled:', prfEnabled)
-      console.log('============================================')
-
-      // Store credential with derived address for PIN verification
-      const credentialData: PasskeyCredential = {
-        credentialId: this.bufferToBase64(credential.rawId),
-        address: wallet.address, // Store the derived address (for PIN verification)
-        username: truncatedAddress,
-        createdAt: Date.now(),
-      }
-
-      await this.storage.saveCredential(credentialData)
-
-      return {
-        credentialId: credentialData.credentialId,
-        address: wallet.address,
-        wallet,
-      }
-    } catch (error) {
-      console.error('❌ Passkey creation failed!')
-      console.error('Error:', error)
-      console.error('Error name:', (error as Error).name)
-      console.error('Error message:', (error as Error).message)
-      console.error('Current RP ID:', this.config.rpId)
-      console.error('Current hostname:', window.location.hostname)
-      console.error('Current origin:', window.location.origin)
-      throw error
+    return {
+      credentialId: this.bufferToBase64(credential.rawId),
+      address: wallet.address,
+      wallet,
     }
   }
 
   /**
-   * Authenticate with existing passkey for a wallet address and derive signing key
+   * Authenticate with existing passkey and derive signing key
+   * Note: walletAddress parameter kept for API compatibility but not used
    */
   async authenticate(
-    walletAddress: string,
+    _walletAddress: string,
     pin: string
   ): Promise<{
     credentialId: string
@@ -235,157 +167,53 @@ export class PasskeyECDSASigner {
 
     const challenge = crypto.getRandomValues(new Uint8Array(32))
 
-    // DEBUG LOGGING
-    console.log('=== Passkey Authentication ===')
-    console.log('Wallet Address:', walletAddress)
-    console.log('RP ID:', this.config.rpId || '(omitted)')
-    console.log('Window hostname:', window.location.hostname)
-    console.log('===============================')
-
-    // Get stored credential for this wallet address
-    const credential = await this.storage.getCredentialByAddress(walletAddress)
-
-    if (!credential) {
-      throw new Error('No passkey found for this wallet address')
-    }
-
-    const allowCredentials = [
-      {
-        id: this.base64ToBuffer(credential.credentialId),
-        type: 'public-key' as const,
-      },
-    ]
-
-    try {
-      // Build options object conditionally
-      const getOptions: PublicKeyCredentialRequestOptions = {
-        challenge,
-        allowCredentials:
-          allowCredentials.length > 0 ? allowCredentials : undefined,
-        userVerification: 'required',
-        extensions: {
-          prf: {
-            eval: {
-              first: new TextEncoder().encode(this.config.prfSalt),
-            },
+    // Build options object conditionally
+    const getOptions: PublicKeyCredentialRequestOptions = {
+      challenge,
+      userVerification: 'required',
+      timeout: 60000,
+      extensions: {
+        prf: {
+          eval: {
+            first: new TextEncoder().encode(this.config.prfSalt),
           },
         },
-      }
-
-      // Only include rpId if it's defined
-      if (this.config.rpId) {
-        getOptions.rpId = this.config.rpId
-      }
-
-      console.log('Get options rpId:', getOptions.rpId || '(omitted)')
-
-      const assertion = (await navigator.credentials.get({
-        publicKey: getOptions,
-      })) as PublicKeyCredential
-
-      console.log('✅ Passkey authentication successful!')
-
-      // Verify PRF worked (for biometric authentication)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const extensionResults = assertion.getClientExtensionResults() as any
-      const prfResult = extensionResults.prf
-
-      if (!prfResult?.results?.first) {
-        throw new Error('Authentication failed')
-      }
-
-      // Derive private key from Credential ID + PIN (same as register)
-      const credId = this.bufferToBase64(assertion.rawId)
-      const credentialId = this.base64ToBuffer(credId)
-      const credentialIdBytes = new Uint8Array(credentialId)
-      const pinBytes = new TextEncoder().encode(pin)
-      const combined = concat([credentialIdBytes, pinBytes])
-      const privateKeyHex = keccak256(combined)
-
-      // Create wallet from PIN-derived key
-      const wallet = new ethers.Wallet(privateKeyHex)
-
-      // OPTIONAL: Verify PIN is correct by checking address
-      const existingCred = await this.storage.getCredential(credId)
-      if (existingCred && existingCred.address !== wallet.address) {
-        throw new Error('Incorrect PIN. Please try again.')
-      }
-
-      // DEBUG: Log PIN-based key derivation
-      console.log('=== PIN-Based Key Derivation (AUTHENTICATE) ===')
-      console.log(
-        'Credential ID (hex):',
-        Buffer.from(credentialIdBytes).toString('hex').substring(0, 20) + '...'
-      )
-      console.log('PIN length:', pin.length)
-      console.log(
-        'Private Key (first 10 chars):',
-        privateKeyHex.substring(0, 10) + '...'
-      )
-      console.log('Derived Address:', wallet.address)
-      console.log('Stored Address:', existingCred?.address || 'N/A')
-      console.log(
-        'PIN Verification:',
-        existingCred ? 'PASSED' : 'SKIPPED (new credential)'
-      )
-      console.log('================================================')
-
-      // Update or create credential
-      if (!existingCred) {
-        await this.storage.saveCredential({
-          credentialId: credId,
-          address: wallet.address,
-          username: walletAddress,
-          createdAt: Date.now(),
-        })
-      }
-
-      return {
-        credentialId: credId,
-        address: wallet.address,
-        wallet,
-      }
-    } catch (error) {
-      console.error('❌ Passkey authentication failed!')
-      console.error('Error:', error)
-      console.error('Error name:', (error as Error).name)
-      console.error('Error message:', (error as Error).message)
-      console.error('Current RP ID:', this.config.rpId)
-      console.error('Current hostname:', window.location.hostname)
-      console.error('Current origin:', window.location.origin)
-      throw error
+      },
     }
-  }
 
-  /**
-   * Check if passkey exists for wallet address
-   */
-  async hasPasskeyForAddress(walletAddress: string): Promise<boolean> {
-    const credential = await this.storage.getCredentialByAddress(walletAddress)
-    return credential !== null
-  }
+    // Only include rpId if it's defined
+    if (this.config.rpId) {
+      getOptions.rpId = this.config.rpId
+    }
 
-  /**
-   * Get credential for wallet address
-   */
-  async getCredentialForAddress(
-    walletAddress: string
-  ): Promise<PasskeyCredential | null> {
-    return this.storage.getCredentialByAddress(walletAddress)
-  }
+    const assertion = (await navigator.credentials.get({
+      publicKey: getOptions,
+      mediation: 'optional', // Show browser's passkey picker
+    })) as PublicKeyCredential
 
-  /**
-   * Get all stored credentials
-   */
-  async getStoredCredentials(): Promise<PasskeyCredential[]> {
-    return this.storage.getAllCredentials()
-  }
+    // Verify PRF worked (for biometric authentication)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const extensionResults = assertion.getClientExtensionResults() as any
+    const prfResult = extensionResults.prf
 
-  /**
-   * Delete a stored credential
-   */
-  async deleteCredential(credentialId: string): Promise<void> {
-    return this.storage.deleteCredential(credentialId)
+    if (!prfResult?.results?.first) {
+      throw new Error('Authentication failed')
+    }
+
+    // Derive private key from Credential ID + PIN (same as register)
+    const credentialIdBytes = new Uint8Array(assertion.rawId)
+    const pinBytes = new TextEncoder().encode(pin)
+    const combined = concat([credentialIdBytes, pinBytes])
+    const privateKeyHex = keccak256(combined)
+
+    // Create wallet from PIN-derived key
+    const wallet = new ethers.Wallet(privateKeyHex)
+
+    return {
+      credentialId: this.bufferToBase64(assertion.rawId),
+      address: wallet.address,
+      wallet,
+    }
   }
 
   // Utility functions
@@ -396,14 +224,5 @@ export class PasskeyECDSASigner {
       binary += String.fromCharCode(bytes[i])
     }
     return btoa(binary)
-  }
-
-  private base64ToBuffer(base64: string): ArrayBuffer {
-    const binary = atob(base64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i)
-    }
-    return bytes.buffer
   }
 }

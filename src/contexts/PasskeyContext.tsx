@@ -30,31 +30,34 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [cachedWallet, setCachedWallet] = useState<ethers.Wallet | null>(null)
   const [signer] = useState(() => new PasskeyECDSASigner())
-  const [refreshTrigger, setRefreshTrigger] = useState(0)
 
-  // Check if passkey exists for current address
+  // Track registered addresses in session storage (per-session, not persistent)
+  const [registeredAddresses, setRegisteredAddresses] = useState<Set<string>>(
+    () => {
+      const stored = sessionStorage.getItem('facewallet_registered_addresses')
+      return stored ? new Set(JSON.parse(stored)) : new Set()
+    }
+  )
+
+  // Check passkey status (handled in useEffect, but exposed for manual refresh)
   const checkPasskey = useCallback(async () => {
-    if (!activeAddress) {
-      setHasPasskey(false)
-      return
-    }
-
-    setIsChecking(true)
-    try {
-      const exists = await signer.hasPasskeyForAddress(activeAddress)
-      setHasPasskey(exists)
-    } catch (err) {
-      console.error('Failed to check passkey:', err)
-      setHasPasskey(false)
-    } finally {
-      setIsChecking(false)
-    }
-  }, [activeAddress, signer])
-
-  // Force refresh passkey status
-  const refreshPasskey = useCallback(() => {
-    setRefreshTrigger(prev => prev + 1)
+    // Status is automatically updated via useEffect
+    return
   }, [])
+
+  // Force refresh passkey status (called after successful registration)
+  const refreshPasskey = useCallback(() => {
+    if (activeAddress) {
+      const newSet = new Set(registeredAddresses)
+      newSet.add(activeAddress.toLowerCase())
+      setRegisteredAddresses(newSet)
+      sessionStorage.setItem(
+        'facewallet_registered_addresses',
+        JSON.stringify(Array.from(newSet))
+      )
+      setHasPasskey(true)
+    }
+  }, [activeAddress, registeredAddresses])
 
   // Authenticate with passkey and cache wallet
   const authenticate = useCallback(
@@ -72,6 +75,17 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
         const result = await signer.authenticate(activeAddress, pin)
         setCachedWallet(result.wallet)
         setIsAuthenticated(true)
+
+        // Mark this address as having a passkey (successful auth proves it exists)
+        const newSet = new Set(registeredAddresses)
+        newSet.add(activeAddress.toLowerCase())
+        setRegisteredAddresses(newSet)
+        sessionStorage.setItem(
+          'facewallet_registered_addresses',
+          JSON.stringify(Array.from(newSet))
+        )
+        setHasPasskey(true)
+
         return result.wallet
       } catch (error) {
         setIsAuthenticated(false)
@@ -79,7 +93,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
         throw error
       }
     },
-    [activeAddress, signer, isAuthenticated, cachedWallet]
+    [activeAddress, signer, isAuthenticated, cachedWallet, registeredAddresses]
   )
 
   // Logout and clear cached wallet
@@ -88,16 +102,27 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(false)
   }, [])
 
-  // Reset authentication state when address changes
+  // Reset authentication state and check passkey when address changes
   useEffect(() => {
+    // Reset auth state - this is intentional when address changes
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCachedWallet(null)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsAuthenticated(false)
-  }, [activeAddress])
 
-  // Check passkey when address changes or refresh is triggered
-  useEffect(() => {
-    checkPasskey()
-  }, [checkPasskey, refreshTrigger])
+    // Check passkey status
+    if (!activeAddress) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHasPasskey(false)
+      return
+    }
+
+    // Check if we've registered a passkey in this session
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHasPasskey(registeredAddresses.has(activeAddress.toLowerCase()))
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsChecking(false)
+  }, [activeAddress, registeredAddresses])
 
   return (
     <PasskeyContext.Provider

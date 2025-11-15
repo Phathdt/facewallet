@@ -9,6 +9,7 @@ FaceWallet is a client-side Ethereum wallet that eliminates seed phrases by usin
 ## Table of Contents
 
 - [How It Works - PIN-Based Key Derivation](#how-it-works---pin-based-key-derivation)
+- [Research & Implementation Journey](#research--implementation-journey)
 - [Features](#features)
 - [Browser Compatibility](#browser-compatibility)
 - [Getting Started](#getting-started)
@@ -78,8 +79,6 @@ Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 │ privateKey = keccak256(credentialId + pin)                     │
 │ wallet = new ethers.Wallet(privateKey)                         │
 │ derivedAddress = wallet.address  // e.g., 0xABC...123          │
-│                                                                 │
-│ Store derivedAddress in IndexedDB for PIN verification         │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -93,10 +92,6 @@ Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 │ 4. credentialId = same value as Mac (synced)                   │
 │ 5. privateKey = keccak256(credentialId + "123456")             │
 │ 6. Same credentialId + same PIN = SAME privateKey!             │
-│                                                                 │
-│ Verify: Compare derivedAddress with stored address             │
-│ If match: PIN is correct ✅                                     │
-│ If mismatch: Show "Incorrect PIN" error ❌                      │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -138,7 +133,7 @@ Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 - Private key deterministically derived from `keccak256(credential_id + pin)`
 - Same credential ID (synced) + same PIN (memorized) = same private key across devices
 - Different PIN = completely different wallet (protects against brute force)
-- Credential ID visible in IndexedDB but useless without PIN
+- Credential ID managed by browser but useless without PIN
 
 **Cross-Device Consistency**
 
@@ -146,13 +141,6 @@ Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 - User memorizes PIN (intentionally not synced for added security)
 - Same passkey + same PIN on any device = identical signature
 - Solves the cross-device signature problem with PRF-only approaches
-
-**PIN Verification**
-
-- Derived wallet address stored in IndexedDB during registration
-- On authentication, system verifies: `derived_address === stored_address`
-- Incorrect PIN rejected immediately (user-friendly error message)
-- Prevents accidental use of wrong PIN creating inaccessible wallet
 
 **Non-Exportable Design**
 
@@ -186,8 +174,7 @@ Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 
 ⚠️ **Limitations:**
 - PIN must be memorized or securely stored
-- Wrong PIN creates different wallet (mitigated by address verification)
-- Credential ID visible in IndexedDB (but useless without PIN)
+- Wrong PIN creates different wallet (no verification without stored address)
 - No "forgot PIN" recovery (by design - non-custodial)
 
 **Forgot PIN?**
@@ -197,6 +184,158 @@ If you forget your PIN, you cannot recover access to that specific wallet. This 
 - Similar to losing a seed phrase in traditional wallets
 - You can create a NEW passkey with a NEW PIN for a different wallet
 - Consider writing down your PIN alongside your important documents
+
+## Research & Implementation Journey
+
+### The Challenge: Cross-Device Signature Consistency
+
+When we first implemented passkey-based signing using WebAuthn's PRF extension, we discovered an important limitation:
+
+**Problem**: Same passkey on different devices (Mac, iPhone) produced different signatures for the same message.
+
+### Why This Happened
+
+WebAuthn's PRF (Pseudo-Random Function) extension is **device-specific**:
+- PRF uses the device's Secure Enclave or TPM
+- Each device generates a unique PRF output
+- iCloud Keychain syncs the **credential ID**, not the PRF secret
+- Different PRF output = Different private key = Different signature
+
+Example:
+```
+Mac:    PRF(biometric_secret_mac) → output_A → private_key_A → signature_A
+iPhone: PRF(biometric_secret_iphone) → output_B → private_key_B → signature_B
+```
+
+### Solution: PIN-Based Deterministic Key Derivation
+
+After researching various approaches, we implemented a **two-layer security model**:
+
+#### Layer 1: Biometric Authentication (WebAuthn PRF)
+- User authenticates with Face ID/Touch ID/Windows Hello
+- PRF extension verifies user identity
+- Protects against unauthorized passkey access
+- Hardware-backed security
+
+#### Layer 2: PIN-Based Key Derivation
+- Private key derived from: `keccak256(credential_id + pin)`
+- Credential ID syncs via iCloud/Google Keychain
+- User memorizes 6-digit PIN
+- Same credential ID + same PIN = same private key across all devices
+
+### How It Works
+
+```
+Registration (Mac):
+1. User creates passkey (biometric prompt)
+2. User sets 6-digit PIN: "123456"
+3. System derives: private_key = keccak256(credential_id + "123456")
+4. Address generated: 0xABC...123
+
+Authentication (iPhone):
+1. Passkey syncs via iCloud (credential_id is identical)
+2. User enters same PIN: "123456"
+3. User authenticates with Face ID
+4. System derives: private_key = keccak256(credential_id + "123456")
+5. Same credential_id + same PIN = SAME private key ✅
+6. Signing same message → SAME signature ✅
+```
+
+### Why No IndexedDB?
+
+Initially, we considered storing credential metadata in IndexedDB for verification. However:
+
+**IndexedDB limitations:**
+- Only accessible within one browser
+- Doesn't sync across devices or browsers
+- Defeats the purpose of passkey sync
+
+**Better approach:**
+- Passkeys sync automatically via iCloud/Google
+- PIN is memorized by user (like a password)
+- No local storage needed
+- Works seamlessly across all browsers and devices
+
+### Security Model
+
+**What protects your wallet:**
+1. **Biometric authentication** - Can't use passkey without Face ID/Touch ID
+2. **6-digit PIN** - Required to derive the correct private key
+3. **Hardware-backed security** - PRF uses Secure Enclave/TPM
+4. **No private key storage** - Keys derived on-demand, never stored
+
+**Trade-offs:**
+- PIN must be memorized or securely written down
+- Wrong PIN = different wallet (no recovery without correct PIN)
+- Credential ID is semi-public (managed by browser, but PIN adds security layer)
+
+**Security Level**: High
+- Requires **both** biometric authentication AND correct PIN
+- More secure than password-only wallets
+- Less complex than full seed phrase management
+
+### Alternative Approaches Considered
+
+We evaluated 5 different options for cross-device consistency:
+
+| Approach | Security | UX | Implementation | Chosen |
+|----------|----------|-----|----------------|--------|
+| Credential ID only | Low | ⭐⭐⭐⭐⭐ | Simple | ❌ Too insecure |
+| **Credential ID + PIN** | High | ⭐⭐⭐⭐ | Medium | ✅ **Selected** |
+| Server KMS | Very High | ⭐⭐⭐ | Complex | ❌ Needs backend |
+| Credential ID + Salt | High | ⭐⭐ | Medium | ❌ Manual sync |
+| Username-based | Very Low | ⭐⭐⭐⭐⭐ | Simple | ❌ Not secure |
+
+**Why we chose PIN-based approach:**
+- Best balance of security and user experience
+- No backend infrastructure required
+- Works offline
+- Simple mental model for users
+- Acceptable security trade-offs for most use cases
+
+### Browser Compatibility
+
+The implementation works on browsers supporting WebAuthn PRF extension:
+
+| Browser | PRF Support | Version | Notes |
+|---------|-------------|---------|-------|
+| Chrome | ✅ | 108+ | Full support |
+| Safari | ✅ | 17+ | macOS 14+, iOS 17+ |
+| Edge | ✅ | 108+ | Chromium-based |
+| Brave | ✅ | 1.47+ | Chromium-based |
+| Firefox | ❌ | N/A | No PRF support yet |
+
+### Vercel Deployment & RP ID
+
+We encountered an issue with explicit RP ID on Vercel deployments:
+
+**Problem**: `vercel.app` is on the Public Suffix List, causing WebAuthn to reject explicit RP IDs.
+
+**Solution**: Omit RP ID for `*.vercel.app` domains, let browser use origin automatically.
+
+```typescript
+const shouldOmitRpId = window.location.hostname.endsWith('.vercel.app')
+```
+
+For custom domains, explicit RP ID can be set via environment variable.
+
+### Key Learnings
+
+1. **PRF is device-specific** - Not suitable for cross-device key derivation
+2. **Passkeys sync credentials, not secrets** - Credential ID syncs, PRF output doesn't
+3. **IndexedDB doesn't help cross-browser** - Only works within one browser instance
+4. **PIN adds determinism** - Enables same key across devices while maintaining security
+5. **Public Suffix List matters** - Vercel domains need special handling for WebAuthn
+
+### Future Enhancements
+
+Potential improvements to consider:
+
+- **PIN change functionality** - Allow users to update their PIN
+- **Multi-signature support** - Use different PINs for different security levels
+- **Biometric-only mode** - Option to use device-specific keys for maximum security
+- **Social recovery** - Allow trusted contacts to help recover access
+- **Hardware wallet integration** - Combine with Ledger/Trezor for cold storage
 
 ## Features
 
@@ -533,10 +672,6 @@ Before deploying FaceWallet to production:
 - **shadcn/ui** - High-quality React components (built on Radix UI)
 - **Radix UI** - Unstyled, accessible component primitives
 - **Lucide React** - Beautiful icon library
-
-### Storage
-
-- **IndexedDB (via idb 8.0)** - Client-side credential storage
 
 ### Development Tools
 

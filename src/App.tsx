@@ -3,7 +3,6 @@ import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { RainbowKitProvider } from '@rainbow-me/rainbowkit'
 import { WagmiProvider, useAccount } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { config } from '@/lib/wagmi/config'
 import { AddressProvider, useAddress } from '@/contexts/AddressContext'
 import { PasskeyProvider } from '@/contexts/PasskeyContext'
@@ -12,7 +11,6 @@ import { AccountDisplay } from '@/components/AccountDisplay'
 import { PasskeyManager } from '@/components/PasskeyManager'
 import { SignMessage } from '@/components/SignMessage'
 import { ManualAddressInput } from '@/components/ManualAddressInput'
-import { DebugInfo } from '@/components/DebugInfo'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const queryClient = new QueryClient()
@@ -21,20 +19,8 @@ function AppContent() {
   const { activeAddress, mode, setMode, addressState } = useAddress()
   const { isConnected } = useAccount()
 
-  useEffect(() => {
-    console.log('=== App Environment Check ===')
-    console.log('All env vars:', import.meta.env)
-    console.log('VITE_RP_ID:', import.meta.env.VITE_RP_ID)
-    console.log('VITE_RP_NAME:', import.meta.env.VITE_RP_NAME)
-    console.log('MODE:', import.meta.env.MODE)
-    console.log('DEV:', import.meta.env.DEV)
-    console.log('PROD:', import.meta.env.PROD)
-    console.log('============================')
-  }, [])
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <DebugInfo />
       <header className="bg-white p-6 shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">FaceWallet</h1>

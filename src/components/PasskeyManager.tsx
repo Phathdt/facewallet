@@ -40,7 +40,6 @@ export function PasskeyManager() {
       setPin('') // Clear PIN for security
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
-      console.error('Failed to create passkey:', err)
       setError(err instanceof Error ? err.message : 'Failed to create passkey')
     } finally {
       setIsLoading(false)
@@ -65,7 +64,6 @@ export function PasskeyManager() {
       setPin('') // Clear PIN for security
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
-      console.error('Failed to authenticate passkey:', err)
       setError(
         err instanceof Error ? err.message : 'Failed to authenticate passkey'
       )
