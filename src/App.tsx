@@ -1,117 +1,53 @@
 import '@rainbow-me/rainbowkit/styles.css'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { RainbowKitProvider } from '@rainbow-me/rainbowkit'
-import { WagmiProvider, useAccount } from 'wagmi'
+import { WagmiProvider } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { config } from '@/lib/wagmi/config'
-import { AddressProvider, useAddress } from '@/contexts/AddressContext'
+import { AddressProvider } from '@/contexts/AddressContext'
 import { PasskeyProvider } from '@/contexts/PasskeyContext'
 import { BrowserCompatibility } from '@/components/BrowserCompatibility'
-import { AccountDisplay } from '@/components/AccountDisplay'
-import { PasskeyManager } from '@/components/PasskeyManager'
-import { SignMessage } from '@/components/SignMessage'
-import { ManualAddressInput } from '@/components/ManualAddressInput'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Home } from '@/pages/Home'
+import { PRFTest } from '@/components/PRFTest'
 
 const queryClient = new QueryClient()
 
 function AppContent() {
-  const { activeAddress, mode, setMode, addressState } = useAddress()
-  const { isConnected } = useAccount()
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <header className="bg-white p-6 shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">FaceWallet</h1>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl p-6">
-        <BrowserCompatibility />
-
-        {activeAddress ? (
-          <div className="mt-6 space-y-6">
-            <AccountDisplay />
-            <PasskeyManager />
-            <SignMessage />
+    <BrowserRouter>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+        <header className="bg-white p-6 shadow-sm">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <Link to="/" className="text-2xl font-bold text-gray-900 hover:text-gray-700">
+              FaceWallet
+            </Link>
+            <nav className="flex gap-6">
+              <Link
+                to="/"
+                className="text-sm font-medium text-gray-600 hover:text-gray-900"
+              >
+                Home
+              </Link>
+              <Link
+                to="/prf-test"
+                className="text-sm font-medium text-gray-600 hover:text-gray-900"
+              >
+                PRF Test
+              </Link>
+            </nav>
           </div>
-        ) : (
-          <div className="py-20">
-            <div className="mx-auto max-w-2xl">
-              <div className="mb-12 text-center">
-                <h2 className="mb-4 text-3xl font-bold text-gray-900">
-                  Welcome to FaceWallet
-                </h2>
-                <p className="text-lg text-gray-600">
-                  Connect your wallet or enter an address to get started, then
-                  create a passkey for biometric signing
-                </p>
-              </div>
+        </header>
 
-              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                {/* Show helpful message when wallet is connected but manual mode selected */}
-                {mode === 'manual' && isConnected && (
-                  <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3">
-                    <p className="text-sm text-blue-800">
-                      You have a wallet connected. Switch to "Connect Wallet"
-                      tab to use it.
-                    </p>
-                  </div>
-                )}
+        <main className="mx-auto max-w-7xl p-6">
+          <BrowserCompatibility />
 
-                {/* Show helpful message when manual address exists but wallet mode selected */}
-                {mode === 'wallet' && !isConnected && addressState.address && (
-                  <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3">
-                    <p className="text-sm text-blue-800">
-                      You have a manual address saved. Switch to "Manual
-                      Address" tab to use it.
-                    </p>
-                  </div>
-                )}
-
-                <Tabs
-                  value={mode}
-                  onValueChange={value => setMode(value as 'wallet' | 'manual')}
-                  className="w-full"
-                >
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="wallet">Connect Wallet</TabsTrigger>
-                    <TabsTrigger value="manual">Manual Address</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="wallet" className="mt-6">
-                    <div className="text-center">
-                      <h3 className="mb-2 text-lg font-semibold text-gray-900">
-                        Connect Your Wallet
-                      </h3>
-                      <p className="mb-4 text-sm text-gray-600">
-                        Connect your Web3 wallet to access all features
-                      </p>
-                      <div className="flex justify-center">
-                        <ConnectButton />
-                      </div>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="manual" className="mt-6">
-                    <div>
-                      <h3 className="mb-2 text-center text-lg font-semibold text-gray-900">
-                        Enter Manual Address
-                      </h3>
-                      <p className="mb-4 text-center text-sm text-gray-600">
-                        Enter an Ethereum address to use passkey signing
-                      </p>
-                      <ManualAddressInput />
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/prf-test" element={<PRFTest />} />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
   )
 }
 
