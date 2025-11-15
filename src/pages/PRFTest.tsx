@@ -84,14 +84,14 @@ export function PRFTest() {
       }
 
       // Check PRF support and results
-      const prfResults = credential.getClientExtensionResults().prf
-      if (!prfResults?.enabled) {
-        throw new Error(
-          'PRF extension not supported on this device/authenticator'
-        )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const extensionResults = credential.getClientExtensionResults() as any
+      const prfResult = extensionResults.prf
+      if (!prfResult?.results?.first) {
+        throw new Error('Authentication failed')
       }
 
-      if (!prfResults.results?.first) {
+      if (!prfResult.results?.first) {
         throw new Error('PRF output not available')
       }
 
@@ -100,7 +100,7 @@ export function PRFTest() {
       setCredentialId(credId)
 
       // Derive private key from PRF output (same as production code)
-      const prfFirstResult = prfResults.results.first
+      const prfFirstResult = prfResult.results.first
       const prfOutput =
         prfFirstResult instanceof ArrayBuffer
           ? new Uint8Array(prfFirstResult)
