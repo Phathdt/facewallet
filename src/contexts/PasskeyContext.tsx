@@ -17,7 +17,7 @@ interface PasskeyContextValue {
   signer: PasskeyECDSASigner
   checkPasskey: () => Promise<void>
   refreshPasskey: () => void
-  authenticate: () => Promise<ethers.Wallet>
+  authenticate: (pin: string) => Promise<ethers.Wallet>
   logout: () => void
 }
 
@@ -57,27 +57,30 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Authenticate with passkey and cache wallet
-  const authenticate = useCallback(async () => {
-    if (!activeAddress) {
-      throw new Error('No active address')
-    }
+  const authenticate = useCallback(
+    async (pin: string) => {
+      if (!activeAddress) {
+        throw new Error('No active address')
+      }
 
-    // Return cached wallet if already authenticated
-    if (isAuthenticated && cachedWallet) {
-      return cachedWallet
-    }
+      // Return cached wallet if already authenticated
+      if (isAuthenticated && cachedWallet) {
+        return cachedWallet
+      }
 
-    try {
-      const result = await signer.authenticate(activeAddress)
-      setCachedWallet(result.wallet)
-      setIsAuthenticated(true)
-      return result.wallet
-    } catch (error) {
-      setIsAuthenticated(false)
-      setCachedWallet(null)
-      throw error
-    }
-  }, [activeAddress, signer, isAuthenticated, cachedWallet])
+      try {
+        const result = await signer.authenticate(activeAddress, pin)
+        setCachedWallet(result.wallet)
+        setIsAuthenticated(true)
+        return result.wallet
+      } catch (error) {
+        setIsAuthenticated(false)
+        setCachedWallet(null)
+        throw error
+      }
+    },
+    [activeAddress, signer, isAuthenticated, cachedWallet]
+  )
 
   // Logout and clear cached wallet
   const logout = useCallback(() => {

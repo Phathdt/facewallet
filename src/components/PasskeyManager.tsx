@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { CheckCircle2, Fingerprint, AlertCircle, LogOut } from 'lucide-react'
 import { useAddress } from '@/contexts/AddressContext'
 import { usePasskey } from '@/contexts/PasskeyContext'
@@ -14,6 +16,7 @@ export function PasskeyManager() {
     logout,
     refreshPasskey,
   } = usePasskey()
+  const [pin, setPin] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -21,14 +24,20 @@ export function PasskeyManager() {
   const handleCreatePasskey = async () => {
     if (!activeAddress) return
 
+    if (pin.length !== 6) {
+      setError('PIN must be 6 digits')
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     setSuccess(null)
 
     try {
-      await signer.register(activeAddress)
+      await signer.register(activeAddress, pin)
       refreshPasskey() // Notify context to refresh passkey status
       setSuccess('Passkey created successfully!')
+      setPin('') // Clear PIN for security
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
       console.error('Failed to create passkey:', err)
@@ -41,13 +50,19 @@ export function PasskeyManager() {
   const handleAuthenticate = async () => {
     if (!activeAddress) return
 
+    if (pin.length !== 6) {
+      setError('PIN must be 6 digits')
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     setSuccess(null)
 
     try {
-      await authenticate()
+      await authenticate(pin)
       setSuccess('Passkey authenticated successfully!')
+      setPin('') // Clear PIN for security
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
       console.error('Failed to authenticate passkey:', err)
@@ -96,18 +111,18 @@ export function PasskeyManager() {
                   <p className="text-blue-700">
                     {isAuthenticated
                       ? 'You can sign messages without re-authenticating.'
-                      : 'Click "Authenticate" to unlock signing with biometrics.'}
+                      : 'Enter your PIN and authenticate with biometrics to unlock signing.'}
                   </p>
                 </>
               ) : (
                 <>
                   <p className="mb-1 font-medium">
-                    Create a passkey to enable biometric signing
+                    Create a passkey to enable biometric signing with PIN
                   </p>
                   <p className="text-blue-700">
-                    Your passkey will be linked to your wallet address (
-                    {activeAddress.slice(0, 6)}...{activeAddress.slice(-4)}) and
-                    will derive a separate signing key from your biometric data.
+                    You'll create a 6-digit PIN and authenticate with
+                    biometrics. Same PIN + same passkey = same signature across
+                    all devices.
                   </p>
                 </>
               )}
@@ -115,13 +130,38 @@ export function PasskeyManager() {
           </div>
         </div>
 
+        {/* PIN Input - Show when creating passkey or authenticating */}
+        {!hasPasskey || !isAuthenticated ? (
+          <div className="space-y-2">
+            <Label htmlFor="pin" className="text-sm font-medium text-gray-700">
+              {!hasPasskey ? 'Create 6-digit PIN' : 'Enter your PIN'}
+            </Label>
+            <Input
+              id="pin"
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={pin}
+              onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+              placeholder="Enter 6-digit PIN"
+              className="text-center text-lg tracking-widest"
+            />
+            <p className="text-xs text-gray-500">
+              {!hasPasskey
+                ? 'This PIN will be used to derive your signing key. Keep it secure!'
+                : 'Use the same PIN you created when registering the passkey'}
+            </p>
+          </div>
+        ) : null}
+
         {!hasPasskey ? (
           <Button
             onClick={handleCreatePasskey}
-            disabled={isLoading}
+            disabled={isLoading || pin.length !== 6}
             className="w-full"
           >
-            {isLoading ? 'Creating Passkey...' : 'Create Passkey'}
+            {isLoading ? 'Creating Passkey...' : 'Create Passkey with PIN'}
           </Button>
         ) : isAuthenticated ? (
           <Button onClick={handleLogout} variant="outline" className="w-full">
@@ -131,10 +171,10 @@ export function PasskeyManager() {
         ) : (
           <Button
             onClick={handleAuthenticate}
-            disabled={isLoading}
+            disabled={isLoading || pin.length !== 6}
             className="w-full"
           >
-            {isLoading ? 'Authenticating...' : 'Authenticate Passkey'}
+            {isLoading ? 'Authenticating...' : 'Authenticate with PIN'}
           </Button>
         )}
 

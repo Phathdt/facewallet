@@ -1,14 +1,14 @@
 # FaceWallet
 
-**Passwordless Ethereum Wallet Using Passkeys and PRF for Deterministic Key Derivation**
+**Passwordless Ethereum Wallet Using Passkeys and PIN-Based Key Derivation**
 
-FaceWallet is a client-side Ethereum wallet that eliminates seed phrases and passwords by using biometric authentication (Face ID, Touch ID, Windows Hello) to derive deterministic private keys through the WebAuthn PRF (Pseudo-Random Function) extension.
+FaceWallet is a client-side Ethereum wallet that eliminates seed phrases by using biometric authentication (Face ID, Touch ID, Windows Hello) combined with a PIN to derive deterministic private keys. This two-layer security approach ensures consistent signatures across all your devices.
 
-> No seed phrases. No passwords. Just your face or fingerprint.
+> No seed phrases. Just your biometrics and a 6-digit PIN.
 
 ## Table of Contents
 
-- [How It Works - The PRF Magic](#how-it-works---the-prf-magic)
+- [How It Works - PIN-Based Key Derivation](#how-it-works---pin-based-key-derivation)
 - [Features](#features)
 - [Browser Compatibility](#browser-compatibility)
 - [Getting Started](#getting-started)
@@ -21,22 +21,29 @@ FaceWallet is a client-side Ethereum wallet that eliminates seed phrases and pas
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 
-## How It Works - The PRF Magic
+## How It Works - PIN-Based Key Derivation
 
-Traditional wallets require you to manage seed phrases (12-24 words) or private keys, which can be lost, stolen, or forgotten. FaceWallet uses a fundamentally different approach powered by the WebAuthn PRF (Pseudo-Random Function) extension.
+Traditional wallets require you to manage seed phrases (12-24 words) or private keys, which can be lost, stolen, or forgotten. FaceWallet uses a fundamentally different approach combining biometric authentication with PIN-based key derivation.
 
-### What is WebAuthn PRF?
+### Two-Layer Security Model
 
-PRF is a browser extension that allows web applications to derive deterministic cryptographic outputs from passkey authentication. Think of it as a "secure random number generator" that:
+FaceWallet uses a dual-layer security approach to protect your wallet and ensure consistent signatures across all devices:
 
-- Always produces the **same output** for the same biometric authentication
-- Is **hardware-backed** by your device's secure enclave (Secure Enclave on iOS/macOS, TPM on Windows)
-- Never exposes the underlying biometric secret
-- Is **domain-bound** to your website's origin
+**Layer 1: Biometric Authentication (WebAuthn PRF)**
+- WebAuthn PRF extension requires biometric verification (Face ID, Touch ID, Windows Hello)
+- Protects against unauthorized passkey access
+- Hardware-backed by your device's secure enclave
+- Passkeys sync automatically via iCloud Keychain or Google Password Manager
+
+**Layer 2: PIN-Based Key Derivation**
+- Private key derived deterministically from: `keccak256(credential_id + pin)`
+- Same passkey + same PIN = same private key across ALL devices
+- PIN is memorized by you (not synced like passkey)
+- Adds an additional security layer beyond biometrics
 
 ### The Signing Flow
 
-Here's how FaceWallet uses PRF to sign Ethereum messages:
+Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -48,50 +55,52 @@ Here's how FaceWallet uses PRF to sign Ethereum messages:
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 2: Create Passkey (First Time Only)                       │
+│ Step 2: Create Passkey + PIN (First Time Only)                 │
 │ ───────────────────────────────────────────────────────────────│
+│ User creates 6-digit PIN: "123456"                             │
+│                                                                 │
 │ navigator.credentials.create({                                  │
 │   extensions: {                                                 │
-│     prf: {                                                      │
-│       eval: {                                                   │
-│         first: "ecdsa-signing-key-v1"  // PRF Salt             │
-│       }                                                         │
-│     }                                                           │
+│     prf: { enabled: true }  // Enable PRF for biometrics       │
 │   }                                                             │
 │ })                                                              │
-└─────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ Step 3: Biometric Authentication                               │
-│ ───────────────────────────────────────────────────────────────│
-│ Device prompts: "Use Face ID to sign in to FaceWallet"         │
+│                                                                 │
+│ Device prompts: "Use Face ID to create passkey"                │
 │ User authenticates with biometric (Face/Touch ID)              │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 4: PRF Derives Deterministic Output                       │
+│ Step 3: Derive Private Key from PIN + Credential ID            │
 │ ───────────────────────────────────────────────────────────────│
-│ Secure Enclave:                                                 │
-│   biometric_secret (never exposed)                             │
-│   + salt ("ecdsa-signing-key-v1")                              │
-│   ↓                                                             │
-│   PRF_OUTPUT = HMAC-SHA256(biometric_secret, salt)             │
-│   ↓                                                             │
-│   Returns: 32 bytes (deterministic, always the same)           │
-└─────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ Step 5: Generate Ethereum Private Key                          │
-│ ───────────────────────────────────────────────────────────────│
-│ privateKey = validateSecp256k1(PRF_OUTPUT)                     │
+│ credentialId = credential.rawId  // Syncs via iCloud/Google    │
+│ pin = "123456"  // User memorizes                              │
 │                                                                 │
-│ If PRF_OUTPUT is not valid for secp256k1:                      │
-│   privateKey = SHA256(PRF_OUTPUT)                              │
-│   Repeat until valid                                           │
+│ privateKey = keccak256(credentialId + pin)                     │
+│ wallet = new ethers.Wallet(privateKey)                         │
+│ derivedAddress = wallet.address  // e.g., 0xABC...123          │
+│                                                                 │
+│ Store derivedAddress in IndexedDB for PIN verification         │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 6: Sign Message                                           │
+│ Step 4: Cross-Device Usage (Same Passkey, Same PIN)            │
+│ ───────────────────────────────────────────────────────────────│
+│ On iPhone (passkey synced from Mac via iCloud):                │
+│                                                                 │
+│ 1. User enters same PIN: "123456"                              │
+│ 2. Device prompts: "Use Face ID to authenticate"               │
+│ 3. User authenticates with Face ID                             │
+│ 4. credentialId = same value as Mac (synced)                   │
+│ 5. privateKey = keccak256(credentialId + "123456")             │
+│ 6. Same credentialId + same PIN = SAME privateKey!             │
+│                                                                 │
+│ Verify: Compare derivedAddress with stored address             │
+│ If match: PIN is correct ✅                                     │
+│ If mismatch: Show "Incorrect PIN" error ❌                      │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 5: Sign Message                                           │
 │ ───────────────────────────────────────────────────────────────│
 │ wallet = new ethers.Wallet(privateKey)                         │
 │ signature = await wallet.signMessage(message)                  │
@@ -100,83 +109,94 @@ Here's how FaceWallet uses PRF to sign Ethereum messages:
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Result: Message Signed!                                        │
+│ Result: Same Signature Across All Devices! ✅                   │
 │ ───────────────────────────────────────────────────────────────│
-│ Next time user wants to sign:                                  │
-│ • Authenticate with biometric                                  │
-│ • PRF produces SAME output                                     │
-│ • SAME private key derived                                     │
-│ • SAME signing capability                                      │
+│ Mac:    credentialId (abc123) + PIN (123456) → privateKey A   │
+│ iPhone: credentialId (abc123) + PIN (123456) → privateKey A   │
+│         ↓                                                       │
+│         Same signature for the same message!                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Why This is Secure
 
-**Hardware-Backed Key Derivation**
+**Dual-Layer Protection**
 
-- PRF output is generated inside the device's secure enclave (Secure Enclave on Apple devices, TPM on Windows)
-- The biometric secret never leaves the secure hardware
-- Private keys are derived on-demand and immediately discarded after use
+- Layer 1: Biometric authentication protects passkey access (hardware-backed)
+- Layer 2: PIN protects private key derivation (memorized secret)
+- Both layers required to sign transactions
+- Attack surface minimized: need both device access AND PIN knowledge
 
-**Biometric-Gated Access**
+**Hardware-Backed Biometric Security**
 
-- Every signing operation requires fresh biometric authentication
-- No way to sign messages without physical presence and biometric verification
-- Protection against remote attacks and unauthorized access
+- Passkey authentication uses device secure enclave (Secure Enclave on Apple, TPM on Windows)
+- Biometric data never leaves the secure hardware
+- WebAuthn PRF extension validates biometric authentication before allowing credential use
 
-**Domain-Bound Security**
+**PIN-Based Key Derivation**
 
-- Passkeys are cryptographically bound to your website's domain
-- Cannot be used on phishing sites or different domains
-- Prevents credential theft and replay attacks
+- Private key deterministically derived from `keccak256(credential_id + pin)`
+- Same credential ID (synced) + same PIN (memorized) = same private key across devices
+- Different PIN = completely different wallet (protects against brute force)
+- Credential ID visible in IndexedDB but useless without PIN
+
+**Cross-Device Consistency**
+
+- Passkey credential ID syncs automatically via iCloud Keychain or Google Password Manager
+- User memorizes PIN (intentionally not synced for added security)
+- Same passkey + same PIN on any device = identical signature
+- Solves the cross-device signature problem with PRF-only approaches
+
+**PIN Verification**
+
+- Derived wallet address stored in IndexedDB during registration
+- On authentication, system verifies: `derived_address === stored_address`
+- Incorrect PIN rejected immediately (user-friendly error message)
+- Prevents accidental use of wrong PIN creating inaccessible wallet
 
 **Non-Exportable Design**
 
-- Private keys are never stored anywhere (not in memory, disk, or cloud)
+- Private keys never stored anywhere (not in memory, disk, or cloud)
+- Derived on-demand from PIN + credential ID
+- Immediately discarded after signing
 - Cannot be extracted, stolen, or lost
-- Derived fresh from PRF on each use
 
-**Deterministic but Unique**
+**Domain-Bound Security**
 
-- Same biometric + same device + same salt = same private key (always)
-- Different device or browser = completely different private key
-- Each passkey produces a unique signing key
+- Passkeys cryptographically bound to your website's domain
+- Cannot be used on phishing sites or different domains
+- Prevents credential theft and replay attacks
 
-### Important Design Decision: Address Linking
+### Important Design Considerations
 
-FaceWallet links passkeys to **user-provided Ethereum addresses** rather than using PRF-derived addresses. Here's why:
+**PIN Security Best Practices**
 
-```typescript
-// User connects wallet or enters address manually
-const userAddress = '0x1234...abcd'
+- Choose a unique 6-digit PIN (not your phone unlock PIN)
+- Write down your PIN in a secure location (like you would a seed phrase)
+- PIN is intentionally NOT synced across devices (adds security layer)
+- Losing your PIN means losing access to that wallet (no recovery mechanism)
 
-// User creates passkey with biometric authentication
-const prfOutput = authenticate_and_get_prf()
+**Trade-offs**
 
-// Derive SIGNING key from PRF (not used for address)
-const signingKey = derive_private_key(prfOutput)
+✅ **Strengths:**
+- Consistent signatures across all devices
+- Biometric + PIN dual-layer security
+- No seed phrases to manage
+- Cross-device passkey sync (iCloud/Google)
 
-// Store the link: userAddress -> passkey credential ID
-storeCredential({
-  address: userAddress, // User's chosen address
-  credentialId: 'abc123...', // Passkey identifier
-})
+⚠️ **Limitations:**
+- PIN must be memorized or securely stored
+- Wrong PIN creates different wallet (mitigated by address verification)
+- Credential ID visible in IndexedDB (but useless without PIN)
+- No "forgot PIN" recovery (by design - non-custodial)
 
-// Later, when signing:
-// 1. User selects their address: 0x1234...abcd
-// 2. Authenticate with passkey linked to that address
-// 3. PRF derives the SAME signing key
-// 4. Sign message with that key
-```
+**Forgot PIN?**
 
-**Benefits:**
-
-- Users can use their existing Ethereum addresses
-- Same address across multiple devices if desired
-- Separation of concerns: identity (address) vs signing capability (PRF key)
-- Flexibility to use wallet connections or manual entry
-
-**Note:** The PRF-derived key is used purely for **signing** messages. It is NOT used to derive the Ethereum address shown to the user.
+If you forget your PIN, you cannot recover access to that specific wallet. This is intentional:
+- Non-custodial design means no one can reset your PIN
+- Similar to losing a seed phrase in traditional wallets
+- You can create a NEW passkey with a NEW PIN for a different wallet
+- Consider writing down your PIN alongside your important documents
 
 ## Features
 

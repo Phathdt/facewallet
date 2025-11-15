@@ -1,6 +1,4 @@
-import { ethers } from 'ethers'
-import * as secp256k1 from '@noble/secp256k1'
-import { sha256 } from '@noble/hashes/sha2.js'
+import { ethers, keccak256, concat } from 'ethers'
 import { PasskeyStorage } from './storage'
 import type { PasskeyCredential, SignerConfig } from './types'
 
@@ -88,11 +86,19 @@ export class PasskeyECDSASigner {
   /**
    * Register a new passkey for a wallet address and derive signing key
    */
-  async register(walletAddress: string): Promise<{
+  async register(
+    walletAddress: string,
+    pin: string
+  ): Promise<{
     credentialId: string
     address: string
     wallet: ethers.Wallet
   }> {
+    // Validate PIN
+    if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
+      throw new Error('PIN must be exactly 6 digits')
+    }
+
     const challenge = crypto.getRandomValues(new Uint8Array(32))
     const userId = crypto.getRandomValues(new Uint8Array(16))
 
@@ -151,27 +157,43 @@ export class PasskeyECDSASigner {
 
       console.log('✅ Passkey created successfully!')
 
-      // Get PRF output
+      // Check PRF extension is enabled (for biometric authentication)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const extensionResults = credential.getClientExtensionResults() as any
-      const prfOutput = extensionResults.prf?.results?.first
+      const prfEnabled = extensionResults.prf?.enabled
 
-      if (!prfOutput) {
-        throw new Error('PRF extension not supported or failed')
+      if (!prfEnabled) {
+        throw new Error('PRF extension not supported')
       }
 
-      // Derive private key from PRF output (this is separate from wallet's private key)
-      const privateKeyBytes = new Uint8Array(prfOutput).slice(0, 32)
-      const privateKey = this.ensureValidPrivateKey(privateKeyBytes)
-      const privateKeyHex = '0x' + Buffer.from(privateKey).toString('hex')
+      // Derive private key from Credential ID + PIN (deterministic across devices)
+      const credentialIdBytes = new Uint8Array(credential.rawId)
+      const pinBytes = new TextEncoder().encode(pin)
+      const combined = concat([credentialIdBytes, pinBytes])
+      const privateKeyHex = keccak256(combined)
 
-      // Create wallet from PRF-derived key
+      // Create wallet from PIN-derived key
       const wallet = new ethers.Wallet(privateKeyHex)
 
-      // Store credential linked to the connected wallet address
+      // DEBUG: Log PIN-based key derivation
+      console.log('=== PIN-Based Key Derivation (REGISTER) ===')
+      console.log(
+        'Credential ID (hex):',
+        Buffer.from(credentialIdBytes).toString('hex').substring(0, 20) + '...'
+      )
+      console.log('PIN length:', pin.length)
+      console.log(
+        'Private Key (first 10 chars):',
+        privateKeyHex.substring(0, 10) + '...'
+      )
+      console.log('Derived Address:', wallet.address)
+      console.log('PRF Enabled:', prfEnabled)
+      console.log('============================================')
+
+      // Store credential with derived address for PIN verification
       const credentialData: PasskeyCredential = {
         credentialId: this.bufferToBase64(credential.rawId),
-        address: walletAddress, // Link to connected wallet address
+        address: wallet.address, // Store the derived address (for PIN verification)
         username: truncatedAddress,
         createdAt: Date.now(),
       }
@@ -180,7 +202,7 @@ export class PasskeyECDSASigner {
 
       return {
         credentialId: credentialData.credentialId,
-        address: walletAddress,
+        address: wallet.address,
         wallet,
       }
     } catch (error) {
@@ -198,11 +220,19 @@ export class PasskeyECDSASigner {
   /**
    * Authenticate with existing passkey for a wallet address and derive signing key
    */
-  async authenticate(walletAddress: string): Promise<{
+  async authenticate(
+    walletAddress: string,
+    pin: string
+  ): Promise<{
     credentialId: string
     address: string
     wallet: ethers.Wallet
   }> {
+    // Validate PIN
+    if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
+      throw new Error('PIN must be exactly 6 digits')
+    }
+
     const challenge = crypto.getRandomValues(new Uint8Array(32))
 
     // DEBUG LOGGING
@@ -255,26 +285,64 @@ export class PasskeyECDSASigner {
 
       console.log('✅ Passkey authentication successful!')
 
-      // Get PRF output
+      // Verify PRF worked (for biometric authentication)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const extensionResults = assertion.getClientExtensionResults() as any
-      const prfOutput = extensionResults.prf?.results?.first
+      const prfResult = extensionResults.prf
 
-      if (!prfOutput) {
-        throw new Error('PRF extension not supported or failed')
+      if (!prfResult?.results?.first) {
+        throw new Error('Authentication failed')
       }
 
-      // Derive private key from PRF output (same as registration)
-      const privateKeyBytes = new Uint8Array(prfOutput).slice(0, 32)
-      const privateKey = this.ensureValidPrivateKey(privateKeyBytes)
-      const privateKeyHex = '0x' + Buffer.from(privateKey).toString('hex')
+      // Derive private key from Credential ID + PIN (same as register)
+      const credId = this.bufferToBase64(assertion.rawId)
+      const credentialId = this.base64ToBuffer(credId)
+      const credentialIdBytes = new Uint8Array(credentialId)
+      const pinBytes = new TextEncoder().encode(pin)
+      const combined = concat([credentialIdBytes, pinBytes])
+      const privateKeyHex = keccak256(combined)
 
-      // Create wallet from PRF-derived key
+      // Create wallet from PIN-derived key
       const wallet = new ethers.Wallet(privateKeyHex)
 
+      // OPTIONAL: Verify PIN is correct by checking address
+      const existingCred = await this.storage.getCredential(credId)
+      if (existingCred && existingCred.address !== wallet.address) {
+        throw new Error('Incorrect PIN. Please try again.')
+      }
+
+      // DEBUG: Log PIN-based key derivation
+      console.log('=== PIN-Based Key Derivation (AUTHENTICATE) ===')
+      console.log(
+        'Credential ID (hex):',
+        Buffer.from(credentialIdBytes).toString('hex').substring(0, 20) + '...'
+      )
+      console.log('PIN length:', pin.length)
+      console.log(
+        'Private Key (first 10 chars):',
+        privateKeyHex.substring(0, 10) + '...'
+      )
+      console.log('Derived Address:', wallet.address)
+      console.log('Stored Address:', existingCred?.address || 'N/A')
+      console.log(
+        'PIN Verification:',
+        existingCred ? 'PASSED' : 'SKIPPED (new credential)'
+      )
+      console.log('================================================')
+
+      // Update or create credential
+      if (!existingCred) {
+        await this.storage.saveCredential({
+          credentialId: credId,
+          address: wallet.address,
+          username: walletAddress,
+          createdAt: Date.now(),
+        })
+      }
+
       return {
-        credentialId: credential.credentialId,
-        address: walletAddress,
+        credentialId: credId,
+        address: wallet.address,
         wallet,
       }
     } catch (error) {
@@ -287,17 +355,6 @@ export class PasskeyECDSASigner {
       console.error('Current origin:', window.location.origin)
       throw error
     }
-  }
-
-  /**
-   * Ensure private key is valid for secp256k1
-   */
-  private ensureValidPrivateKey(key: Uint8Array): Uint8Array {
-    let validKey = new Uint8Array(key)
-    while (!secp256k1.utils.isValidSecretKey(validKey)) {
-      validKey = new Uint8Array(sha256(validKey))
-    }
-    return validKey
   }
 
   /**

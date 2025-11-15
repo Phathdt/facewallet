@@ -40,16 +40,40 @@ export function SignMessage() {
   const handleSignWithPasskey = async () => {
     if (!message || !activeAddress) return
 
+    // Check if already authenticated
+    if (!isAuthenticated) {
+      setError(
+        'Please authenticate your passkey first in the Passkey Signing section above.'
+      )
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     setSigningMethod('passkey')
 
     try {
-      // Use context's authenticate (will use cached wallet if available)
-      const wallet = await authenticate()
+      // Use context's authenticate with empty PIN (will use cached wallet)
+      const wallet = await authenticate('')
+
+      // DEBUG: Log message signing details
+      console.log('=== Message Signing Debug ===')
+      console.log('Message to sign:', message)
+      console.log('Message length:', message.length)
+      console.log('Message bytes:', new TextEncoder().encode(message))
+      console.log('Wallet address:', wallet.address)
+      console.log('=============================')
 
       // Sign message with cached or newly authenticated wallet
       const sig = await wallet.signMessage(message)
+
+      // DEBUG: Log signature result
+      console.log('=== Signature Result ===')
+      console.log('Signature:', sig)
+      console.log('Signature length:', sig.length)
+      console.log('Message that was signed:', message)
+      console.log('========================')
+
       setSignature(sig)
     } catch (error) {
       console.error('Failed to sign with passkey:', error)
@@ -119,7 +143,7 @@ export function SignMessage() {
           {hasPasskey && (
             <Button
               onClick={handleSignWithPasskey}
-              disabled={!message || isPending}
+              disabled={!message || isPending || !isAuthenticated}
               className="w-full"
               variant={isManualSource ? 'default' : 'outline'}
             >
@@ -127,7 +151,7 @@ export function SignMessage() {
                 ? 'Signing with Passkey...'
                 : isAuthenticated
                   ? 'Sign with Passkey'
-                  : 'Authenticate & Sign with Passkey'}
+                  : 'Authenticate Passkey First'}
             </Button>
           )}
 
