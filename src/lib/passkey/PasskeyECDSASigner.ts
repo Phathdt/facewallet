@@ -11,8 +11,9 @@ export class PasskeyECDSASigner {
   constructor(config?: Partial<SignerConfig>) {
     this.storage = new PasskeyStorage()
     this.config = {
-      rpName: config?.rpName || 'FaceWallet',
-      rpId: config?.rpId || window.location.hostname,
+      rpName: config?.rpName || import.meta.env.VITE_RP_NAME || 'FaceWallet',
+      rpId:
+        config?.rpId || import.meta.env.VITE_RP_ID || window.location.hostname,
       prfSalt: config?.prfSalt || 'ecdsa-signing-key-v1',
       ...config,
     }

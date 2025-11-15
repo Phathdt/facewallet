@@ -236,13 +236,62 @@ cd facewallet
 # Install dependencies
 pnpm install
 
-# Create environment file
-cp .env.example .env
+# Create environment file for local development
+cp .env.example .env.local
 
-# Edit .env and add your WalletConnect Project ID
-# Get one free at https://cloud.walletconnect.com
-# VITE_WALLET_CONNECT_PROJECT_ID=your_project_id_here
+# Edit .env.local and configure:
+# 1. Set VITE_RP_ID=localhost (for local development)
+# 2. Add your WalletConnect Project ID (get one free at https://cloud.walletconnect.com)
 ```
+
+### Environment Variables
+
+FaceWallet requires the following environment variables:
+
+#### Required Variables
+
+- **`VITE_RP_ID`** - WebAuthn Relying Party ID (domain name)
+  - **Local development**: `localhost`
+  - **Production**: `facewallet.vercel.app` (or your custom domain)
+
+- **`VITE_RP_NAME`** - Display name for your application
+  - Example: `FaceWallet`
+
+- **`VITE_WALLET_CONNECT_PROJECT_ID`** - WalletConnect project ID
+  - Get one free at [cloud.walletconnect.com](https://cloud.walletconnect.com)
+
+#### Optional Variables
+
+- **`VITE_ALCHEMY_API_KEY`** - Alchemy API key for RPC endpoints
+
+#### Setup for Local Development
+
+1. Copy `.env.example` to `.env.local`:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+2. Update `.env.local` with your local settings:
+   ```env
+   VITE_RP_ID=localhost
+   VITE_RP_NAME=FaceWallet (Dev)
+   VITE_WALLET_CONNECT_PROJECT_ID=your_project_id_here
+   ```
+
+#### Important Notes About RP ID
+
+**RP ID Must Match Domain**: The `VITE_RP_ID` must match the domain where the app is hosted. Passkeys created with one RP ID cannot be used with a different RP ID.
+
+**Localhost vs Production**: Passkeys created on `localhost` will NOT work on `facewallet.vercel.app` and vice versa. This is a WebAuthn security feature.
+
+**Custom Domains**: If you add a custom domain (e.g., `app.facewallet.com`), update `VITE_RP_ID` to match the custom domain.
+
+**Valid RP ID Rules**:
+- RP ID must be a valid domain suffix of the current origin
+- For `facewallet.vercel.app`, valid RP IDs are:
+  - `facewallet.vercel.app` (recommended)
+  - `vercel.app` (less specific, not recommended)
+  - `app` (invalid - not a valid domain)
 
 ### Run Development Server
 
@@ -629,28 +678,85 @@ console.log('Derived private key:', privateKeyHex)
 
 ### Deploy to Vercel (Recommended)
 
+#### Option 1: Using Vercel CLI
+
 ```bash
 # Install Vercel CLI
-npm i -g vercel
+pnpm add -g vercel
+
+# Set environment variables for production
+vercel env add VITE_RP_ID production
+# Enter: facewallet.vercel.app
+
+vercel env add VITE_RP_NAME production
+# Enter: FaceWallet
+
+vercel env add VITE_WALLET_CONNECT_PROJECT_ID production
+# Enter: your_project_id_here
 
 # Deploy to production
 vercel --prod
-
-# Set environment variables in Vercel dashboard:
-# VITE_WALLET_CONNECT_PROJECT_ID=your_project_id
 ```
+
+#### Option 2: Using Vercel Dashboard
+
+1. **Push your code to GitHub**:
+   ```bash
+   git add .
+   git commit -m "feat: add WebAuthn RP ID configuration"
+   git push origin main
+   ```
+
+2. **Connect repository on Vercel**:
+   - Go to [vercel.com/new](https://vercel.com/new)
+   - Import your GitHub repository
+   - Configure project settings
+
+3. **Add environment variables**:
+   - Go to **Project Settings** > **Environment Variables**
+   - Add the following variables for **Production**:
+     - `VITE_RP_ID` = `facewallet.vercel.app`
+     - `VITE_RP_NAME` = `FaceWallet`
+     - `VITE_WALLET_CONNECT_PROJECT_ID` = `your_project_id_here`
+
+4. **Redeploy** (if already deployed):
+   - Go to **Deployments** tab
+   - Click **Redeploy** on the latest deployment
+   - Or push a new commit to trigger automatic deployment
+
+#### Important: Custom Domain Configuration
+
+If you add a custom domain to your Vercel project:
+
+1. **Add the custom domain in Vercel**:
+   - Go to **Project Settings** > **Domains**
+   - Add your custom domain (e.g., `app.facewallet.com`)
+
+2. **Update the `VITE_RP_ID` environment variable**:
+   - Go to **Environment Variables**
+   - Update `VITE_RP_ID` to match your custom domain
+   - Example: `VITE_RP_ID` = `app.facewallet.com`
+
+3. **Redeploy the application**:
+   - Passkeys are domain-bound
+   - Changing RP ID requires users to create new passkeys
+
+**Note**: Passkeys created with `facewallet.vercel.app` will NOT work with `app.facewallet.com`. Users will need to create new passkeys after domain change.
 
 ### Deploy to Netlify
 
 ```bash
 # Install Netlify CLI
-npm i -g netlify-cli
+pnpm add -g netlify-cli
 
 # Build and deploy
 pnpm build
 netlify deploy --prod --dir=dist
 
-# Set environment variables in Netlify dashboard
+# Set environment variables in Netlify dashboard:
+# - VITE_RP_ID=your-app.netlify.app
+# - VITE_RP_NAME=FaceWallet
+# - VITE_WALLET_CONNECT_PROJECT_ID=your_project_id
 ```
 
 ### Deploy to Cloudflare Pages
@@ -663,30 +769,110 @@ git push origin main
 # Build settings:
 #   Build command: pnpm build
 #   Build output directory: dist
-#   Environment variables: VITE_WALLET_CONNECT_PROJECT_ID
+#
+# Environment variables:
+#   VITE_RP_ID=your-app.pages.dev
+#   VITE_RP_NAME=FaceWallet
+#   VITE_WALLET_CONNECT_PROJECT_ID=your_project_id
 ```
 
-### Environment Variables
+### Environment Variables Reference
 
 Set these in your deployment platform:
 
-| Variable                         | Description                    | Required |
-| -------------------------------- | ------------------------------ | -------- |
-| `VITE_WALLET_CONNECT_PROJECT_ID` | WalletConnect Cloud project ID | Yes      |
+| Variable                         | Description                           | Required | Example                      |
+| -------------------------------- | ------------------------------------- | -------- | ---------------------------- |
+| `VITE_RP_ID`                     | WebAuthn Relying Party ID (domain)    | Yes      | `facewallet.vercel.app`      |
+| `VITE_RP_NAME`                   | Display name for the application      | Yes      | `FaceWallet`                 |
+| `VITE_WALLET_CONNECT_PROJECT_ID` | WalletConnect Cloud project ID        | Yes      | `abc123...`                  |
+| `VITE_ALCHEMY_API_KEY`           | Alchemy API key for RPC endpoints     | No       | `xyz789...`                  |
 
-Get a free WalletConnect Project ID at [cloud.walletconnect.com](https://cloud.walletconnect.com)
+**Get Required IDs:**
+- WalletConnect Project ID: [cloud.walletconnect.com](https://cloud.walletconnect.com)
+- Alchemy API Key: [alchemy.com](https://www.alchemy.com)
 
-### Post-Deployment Verification
+### Testing Your Deployment
 
-After deploying, verify:
+After deployment, verify the following checklist:
 
-1. **HTTPS is enforced**: Passkeys require secure context
-2. **PRF detection works**: Check browser compatibility message
-3. **Wallet connection works**: Test RainbowKit integration
-4. **Manual address works**: Test entering address manually
-5. **Passkey creation works**: Create passkey on production
-6. **Message signing works**: Sign a test message
-7. **Error handling works**: Test unsupported browser behavior
+#### Security & HTTPS
+- [ ] **HTTPS is enforced**: Passkeys require secure context
+- [ ] **Security headers are set**: Check vercel.json configuration
+- [ ] **No mixed content warnings**: All resources loaded over HTTPS
+
+#### WebAuthn Configuration
+- [ ] **RP ID matches domain**: Check browser console for WebAuthn errors
+- [ ] **PRF extension is detected**: Green compatibility banner should appear
+- [ ] **Passkey creation works**: Successfully create a passkey on production
+- [ ] **Passkey authentication works**: Sign in with created passkey
+- [ ] **Message signing works**: Sign a test message with passkey
+
+#### Web3 Integration
+- [ ] **Wallet connection works**: Test RainbowKit integration
+- [ ] **Multiple wallet types work**: Test MetaMask, WalletConnect, etc.
+- [ ] **Manual address works**: Test entering address manually
+- [ ] **Address display is correct**: Verify truncated address format
+
+#### Browser Compatibility
+- [ ] **Chrome/Edge works**: Test on Chrome 108+ or Edge 108+
+- [ ] **Safari works**: Test on Safari 17+ (macOS/iOS)
+- [ ] **Unsupported browser shows warning**: Test on Firefox (should show red banner)
+
+#### Error Handling
+- [ ] **Graceful error messages**: Test error scenarios
+- [ ] **Recovery from failed passkey creation**: Can retry after failure
+- [ ] **Clear user feedback**: Status messages are helpful
+
+#### Cross-Environment Testing
+
+**Important**: Remember that passkeys are environment-specific:
+
+| Environment | RP ID | Passkeys Work? |
+|-------------|-------|----------------|
+| `localhost:5173` | `localhost` | Only on localhost |
+| `facewallet.vercel.app` | `facewallet.vercel.app` | Only on this domain |
+| `app.facewallet.com` | `app.facewallet.com` | Only on custom domain |
+
+Users must create separate passkeys for each environment. This is a WebAuthn security feature, not a bug.
+
+### Troubleshooting Deployment Issues
+
+#### RP ID Mismatch Error
+```
+Error: The relying party ID is not a registrable domain suffix of, nor equal to the current domain
+```
+
+**Solution**: Ensure `VITE_RP_ID` environment variable matches your deployment domain exactly.
+
+#### Passkeys Not Working After Custom Domain Setup
+```
+Error: No passkey found for this wallet address
+```
+
+**Solution**:
+1. Update `VITE_RP_ID` to match new custom domain
+2. Redeploy application
+3. Users must create new passkeys (old ones won't work with new domain)
+
+#### Environment Variables Not Loading
+```
+Error: import.meta.env.VITE_RP_ID is undefined
+```
+
+**Solution**:
+1. Verify environment variables are set in deployment platform
+2. Ensure variable names start with `VITE_` (required by Vite)
+3. Redeploy after adding/changing environment variables
+
+#### Build Fails on Vercel
+```
+Error: Command failed: pnpm build
+```
+
+**Solution**:
+1. Check `vercel.json` configuration is correct
+2. Verify `pnpm-lock.yaml` is committed to git
+3. Check build logs for specific error messages
 
 ## Troubleshooting
 
