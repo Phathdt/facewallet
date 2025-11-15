@@ -1,25 +1,52 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { ethers } from 'ethers'
 import { AlertCircle, CheckCircle2, Info } from 'lucide-react'
 import { useAddress } from '@/contexts/AddressContext'
 
 export function PRFTest() {
-  const { activeAddress } = useAddress()
-  const [address, setAddress] = useState('')
+  const { activeAddress, setManualAddress } = useAddress()
+  const [localAddress, setLocalAddress] = useState('')
+  const [derivedAddress, setDerivedAddress] = useState('')
   const [credentialId, setCredentialId] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const handleSetAddress = () => {
+    if (!localAddress) {
+      setError('Please enter an Ethereum address')
+      return
+    }
+
+    // Validate address format
+    if (!ethers.isAddress(localAddress)) {
+      setError('Invalid Ethereum address format')
+      return
+    }
+
+    setManualAddress(localAddress)
+    setError(null)
+  }
+
   const handleUseExistingPasskey = async () => {
-    if (!activeAddress) {
-      setError('Please connect a wallet or enter an address on the Home page first')
+    const addressToUse = activeAddress || localAddress
+
+    if (!addressToUse) {
+      setError('Please enter an address first')
+      return
+    }
+
+    // Validate address format
+    if (!ethers.isAddress(addressToUse)) {
+      setError('Invalid Ethereum address format')
       return
     }
 
     setIsLoading(true)
     setError(null)
-    setAddress('')
+    setDerivedAddress('')
     setCredentialId('')
 
     try {
@@ -87,7 +114,7 @@ export function PRFTest() {
 
       // Create wallet and get address
       const wallet = new ethers.Wallet(privateKeyHex)
-      setAddress(wallet.address)
+      setDerivedAddress(wallet.address)
     } catch (err) {
       console.error('PRF Test Error:', err)
       setError(
@@ -138,28 +165,47 @@ export function PRFTest() {
             </div>
           </div>
 
-          {!activeAddress && (
-            <div className="mb-4 rounded-md border border-yellow-200 bg-yellow-50 p-3">
-              <div className="flex gap-2">
-                <AlertCircle className="h-5 w-5 shrink-0 text-yellow-600" />
-                <p className="text-sm font-medium text-yellow-700">
-                  Please connect a wallet or enter an address on the Home page first
+          <div className="mb-4 space-y-4">
+            {activeAddress ? (
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                <p className="text-sm text-gray-600">
+                  <strong>Active Address:</strong> {activeAddress}
                 </p>
               </div>
-            </div>
-          )}
-
-          {activeAddress && (
-            <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-3">
-              <p className="text-sm text-gray-600">
-                <strong>Current Address:</strong> {activeAddress}
-              </p>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="address" className="text-sm font-medium text-gray-700">
+                    Enter Ethereum Address (for testing)
+                  </Label>
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      id="address"
+                      type="text"
+                      value={localAddress}
+                      onChange={e => setLocalAddress(e.target.value)}
+                      placeholder="0x..."
+                      className="flex-1"
+                    />
+                    <Button
+                      onClick={handleSetAddress}
+                      variant="outline"
+                      disabled={!localAddress}
+                    >
+                      Set
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Or go to Home page to connect your wallet
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           <Button
             onClick={handleUseExistingPasskey}
-            disabled={isLoading || !activeAddress}
+            disabled={isLoading || (!activeAddress && !localAddress)}
             className="w-full"
             size="lg"
           >
@@ -175,7 +221,7 @@ export function PRFTest() {
             </div>
           )}
 
-          {address && (
+          {derivedAddress && (
             <div className="mt-4 space-y-4">
               <div className="rounded-md border border-green-200 bg-green-50 p-3">
                 <div className="flex gap-2">
@@ -191,7 +237,7 @@ export function PRFTest() {
                   Derived Address (from PRF output)
                 </label>
                 <code className="block rounded border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm break-all">
-                  {address}
+                  {derivedAddress}
                 </code>
               </div>
 
