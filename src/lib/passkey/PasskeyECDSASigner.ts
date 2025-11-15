@@ -17,6 +17,21 @@ export class PasskeyECDSASigner {
       prfSalt: config?.prfSalt || 'ecdsa-signing-key-v1',
       ...config,
     }
+
+    // DEBUG LOGGING
+    console.log('=== PasskeyECDSASigner Configuration ===')
+    console.log('Environment Variables:')
+    console.log('  VITE_RP_NAME:', import.meta.env.VITE_RP_NAME)
+    console.log('  VITE_RP_ID:', import.meta.env.VITE_RP_ID)
+    console.log('Window Location:')
+    console.log('  hostname:', window.location.hostname)
+    console.log('  origin:', window.location.origin)
+    console.log('  href:', window.location.href)
+    console.log('Final Config:')
+    console.log('  rpName:', this.config.rpName)
+    console.log('  rpId:', this.config.rpId)
+    console.log('  prfSalt:', this.config.prfSalt)
+    console.log('=======================================')
   }
 
   /**
@@ -77,13 +92,23 @@ export class PasskeyECDSASigner {
     // Truncate address for display: 0x1234...abcd
     const truncatedAddress = `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
 
-    const credential = (await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: {
-          name: this.config.rpName,
-          id: this.config.rpId,
-        },
+    // DEBUG LOGGING
+    console.log('=== Passkey Registration ===')
+    console.log('Wallet Address:', walletAddress)
+    console.log('Challenge:', challenge)
+    console.log('RP ID:', this.config.rpId)
+    console.log('RP Name:', this.config.rpName)
+    console.log('Window hostname:', window.location.hostname)
+    console.log('============================')
+
+    try {
+      const credential = (await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: {
+            name: this.config.rpName,
+            id: this.config.rpId,
+          },
         user: {
           id: userId,
           name: truncatedAddress,
@@ -106,39 +131,51 @@ export class PasskeyECDSASigner {
           },
         },
       },
-    })) as PublicKeyCredential
+      })) as PublicKeyCredential
 
-    // Get PRF output
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const extensionResults = credential.getClientExtensionResults() as any
-    const prfOutput = extensionResults.prf?.results?.first
+      console.log('✅ Passkey created successfully!')
 
-    if (!prfOutput) {
-      throw new Error('PRF extension not supported or failed')
-    }
+      // Get PRF output
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const extensionResults = credential.getClientExtensionResults() as any
+      const prfOutput = extensionResults.prf?.results?.first
 
-    // Derive private key from PRF output (this is separate from wallet's private key)
-    const privateKeyBytes = new Uint8Array(prfOutput).slice(0, 32)
-    const privateKey = this.ensureValidPrivateKey(privateKeyBytes)
-    const privateKeyHex = '0x' + Buffer.from(privateKey).toString('hex')
+      if (!prfOutput) {
+        throw new Error('PRF extension not supported or failed')
+      }
 
-    // Create wallet from PRF-derived key
-    const wallet = new ethers.Wallet(privateKeyHex)
+      // Derive private key from PRF output (this is separate from wallet's private key)
+      const privateKeyBytes = new Uint8Array(prfOutput).slice(0, 32)
+      const privateKey = this.ensureValidPrivateKey(privateKeyBytes)
+      const privateKeyHex = '0x' + Buffer.from(privateKey).toString('hex')
 
-    // Store credential linked to the connected wallet address
-    const credentialData: PasskeyCredential = {
-      credentialId: this.bufferToBase64(credential.rawId),
-      address: walletAddress, // Link to connected wallet address
-      username: truncatedAddress,
-      createdAt: Date.now(),
-    }
+      // Create wallet from PRF-derived key
+      const wallet = new ethers.Wallet(privateKeyHex)
 
-    await this.storage.saveCredential(credentialData)
+      // Store credential linked to the connected wallet address
+      const credentialData: PasskeyCredential = {
+        credentialId: this.bufferToBase64(credential.rawId),
+        address: walletAddress, // Link to connected wallet address
+        username: truncatedAddress,
+        createdAt: Date.now(),
+      }
 
-    return {
-      credentialId: credentialData.credentialId,
-      address: walletAddress,
-      wallet,
+      await this.storage.saveCredential(credentialData)
+
+      return {
+        credentialId: credentialData.credentialId,
+        address: walletAddress,
+        wallet,
+      }
+    } catch (error) {
+      console.error('❌ Passkey creation failed!')
+      console.error('Error:', error)
+      console.error('Error name:', (error as Error).name)
+      console.error('Error message:', (error as Error).message)
+      console.error('Current RP ID:', this.config.rpId)
+      console.error('Current hostname:', window.location.hostname)
+      console.error('Current origin:', window.location.origin)
+      throw error
     }
   }
 
@@ -151,6 +188,13 @@ export class PasskeyECDSASigner {
     wallet: ethers.Wallet
   }> {
     const challenge = crypto.getRandomValues(new Uint8Array(32))
+
+    // DEBUG LOGGING
+    console.log('=== Passkey Authentication ===')
+    console.log('Wallet Address:', walletAddress)
+    console.log('RP ID:', this.config.rpId)
+    console.log('Window hostname:', window.location.hostname)
+    console.log('===============================')
 
     // Get stored credential for this wallet address
     const credential = await this.storage.getCredentialByAddress(walletAddress)
@@ -166,43 +210,56 @@ export class PasskeyECDSASigner {
       },
     ]
 
-    const assertion = (await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        rpId: this.config.rpId,
-        allowCredentials,
-        userVerification: 'required',
-        extensions: {
-          prf: {
-            eval: {
-              first: new TextEncoder().encode(this.config.prfSalt),
+    try {
+      const assertion = (await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          rpId: this.config.rpId,
+          allowCredentials,
+          userVerification: 'required',
+          extensions: {
+            prf: {
+              eval: {
+                first: new TextEncoder().encode(this.config.prfSalt),
+              },
             },
           },
         },
-      },
-    })) as PublicKeyCredential
+      })) as PublicKeyCredential
 
-    // Get PRF output
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const extensionResults = assertion.getClientExtensionResults() as any
-    const prfOutput = extensionResults.prf?.results?.first
+      console.log('✅ Passkey authentication successful!')
 
-    if (!prfOutput) {
-      throw new Error('PRF extension not supported or failed')
-    }
+      // Get PRF output
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const extensionResults = assertion.getClientExtensionResults() as any
+      const prfOutput = extensionResults.prf?.results?.first
 
-    // Derive private key from PRF output (same as registration)
-    const privateKeyBytes = new Uint8Array(prfOutput).slice(0, 32)
-    const privateKey = this.ensureValidPrivateKey(privateKeyBytes)
-    const privateKeyHex = '0x' + Buffer.from(privateKey).toString('hex')
+      if (!prfOutput) {
+        throw new Error('PRF extension not supported or failed')
+      }
 
-    // Create wallet from PRF-derived key
-    const wallet = new ethers.Wallet(privateKeyHex)
+      // Derive private key from PRF output (same as registration)
+      const privateKeyBytes = new Uint8Array(prfOutput).slice(0, 32)
+      const privateKey = this.ensureValidPrivateKey(privateKeyBytes)
+      const privateKeyHex = '0x' + Buffer.from(privateKey).toString('hex')
 
-    return {
-      credentialId: credential.credentialId,
-      address: walletAddress,
-      wallet,
+      // Create wallet from PRF-derived key
+      const wallet = new ethers.Wallet(privateKeyHex)
+
+      return {
+        credentialId: credential.credentialId,
+        address: walletAddress,
+        wallet,
+      }
+    } catch (error) {
+      console.error('❌ Passkey authentication failed!')
+      console.error('Error:', error)
+      console.error('Error name:', (error as Error).name)
+      console.error('Error message:', (error as Error).message)
+      console.error('Current RP ID:', this.config.rpId)
+      console.error('Current hostname:', window.location.hostname)
+      console.error('Current origin:', window.location.origin)
+      throw error
     }
   }
 
