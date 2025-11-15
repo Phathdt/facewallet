@@ -34,9 +34,15 @@ export function PasskeyManager() {
     setSuccess(null)
 
     try {
-      await signer.register(activeAddress, pin)
+      const result = await signer.register(activeAddress, pin)
       refreshPasskey() // Notify context to refresh passkey status
-      setSuccess('Passkey created successfully!')
+
+      if (result.isExisting) {
+        setSuccess('Using existing passkey for this address!')
+      } else {
+        setSuccess('Passkey created successfully!')
+      }
+
       setPin('') // Clear PIN for security
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {

@@ -7,25 +7,33 @@ import { PasskeyContext } from './PasskeyContext.context'
 export function PasskeyProvider({ children }: { children: ReactNode }) {
   const { activeAddress } = useAddress()
   const [hasPasskey, setHasPasskey] = useState(false)
-  const [isChecking, setIsChecking] = useState(false)
+  const [isChecking] = useState(false) // Not used currently but kept for API compatibility
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [cachedWallet, setCachedWallet] = useState<ethers.Wallet | null>(null)
   const [signer] = useState(() => new PasskeyECDSASigner())
   const [previousAddress, setPreviousAddress] = useState<string | null>(null)
 
-  // Track registered addresses in session storage (per-session, not persistent)
+  // Track registered addresses in localStorage (persists across sessions)
   const [registeredAddresses, setRegisteredAddresses] = useState<Set<string>>(
     () => {
-      const stored = sessionStorage.getItem('facewallet_registered_addresses')
+      const stored = localStorage.getItem('facewallet_registered_addresses')
       return stored ? new Set(JSON.parse(stored)) : new Set()
     }
   )
 
-  // Check passkey status (handled in useEffect, but exposed for manual refresh)
+  // Check passkey status from localStorage cache
   const checkPasskey = useCallback(async () => {
-    // Status is automatically updated via useEffect
-    return
-  }, [])
+    if (!activeAddress) {
+      setHasPasskey(false)
+      return
+    }
+
+    // Check localStorage cache
+    // Note: This is just a hint. The actual passkey detection happens in register()
+    // which will reuse existing passkey if found
+    const hasInCache = registeredAddresses.has(activeAddress.toLowerCase())
+    setHasPasskey(hasInCache)
+  }, [activeAddress, registeredAddresses])
 
   // Force refresh passkey status (called after successful registration)
   const refreshPasskey = useCallback(() => {
@@ -33,7 +41,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
       const newSet = new Set(registeredAddresses)
       newSet.add(activeAddress.toLowerCase())
       setRegisteredAddresses(newSet)
-      sessionStorage.setItem(
+      localStorage.setItem(
         'facewallet_registered_addresses',
         JSON.stringify(Array.from(newSet))
       )
@@ -62,7 +70,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
         const newSet = new Set(registeredAddresses)
         newSet.add(activeAddress.toLowerCase())
         setRegisteredAddresses(newSet)
-        sessionStorage.setItem(
+        localStorage.setItem(
           'facewallet_registered_addresses',
           JSON.stringify(Array.from(newSet))
         )
@@ -98,18 +106,11 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
       setPreviousAddress(activeAddress)
     }
 
-    // Check passkey status
-    if (!activeAddress) {
-      setHasPasskey(false)
-      return
+    // Check passkey status when address changes
+    if (addressChanged) {
+      checkPasskey()
     }
-
-    // Check if we've registered a passkey in this session
-
-    setHasPasskey(registeredAddresses.has(activeAddress.toLowerCase()))
-
-    setIsChecking(false)
-  }, [activeAddress, registeredAddresses, previousAddress])
+  }, [activeAddress, previousAddress, checkPasskey])
 
   return (
     <PasskeyContext.Provider

@@ -65,7 +65,8 @@ export class PasskeyECDSASigner {
 
   /**
    * Register a new passkey for a wallet address
-   * Only creates the passkey - does NOT authenticate immediately (better UX)
+   * First checks if a passkey already exists, if so, reuses it
+   * Only creates a new passkey if none exists
    * Uses PRF(sha256(PIN)) approach for higher security
    */
   async register(
@@ -73,6 +74,7 @@ export class PasskeyECDSASigner {
     pin: string
   ): Promise<{
     credentialId: string
+    isExisting: boolean
   }> {
     // Validate PIN
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
@@ -85,6 +87,47 @@ export class PasskeyECDSASigner {
       new TextEncoder().encode(pin)
     )
 
+    // Step 2: Check if a passkey already exists by attempting authentication
+    try {
+      // Build options object conditionally
+      const getOptions: PublicKeyCredentialRequestOptions = {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        userVerification: 'required',
+        timeout: 60000,
+        extensions: {
+          prf: {
+            eval: {
+              first: pinHash,
+            },
+          },
+        },
+      }
+
+      // Only include rpId if it's defined
+      if (this.config.rpId) {
+        getOptions.rpId = this.config.rpId
+      }
+
+      // Try to authenticate with existing passkey
+      const existingCredential = (await navigator.credentials.get({
+        publicKey: getOptions,
+        mediation: 'optional', // Show passkey picker
+      })) as PublicKeyCredential
+
+      if (existingCredential) {
+        // Passkey already exists! Return the existing credential ID
+        console.log('Using existing passkey for this address')
+        return {
+          credentialId: this.bufferToBase64(existingCredential.rawId),
+          isExisting: true,
+        }
+      }
+    } catch {
+      // No existing passkey found or user cancelled, proceed to create new one
+      console.log('No existing passkey found, creating new one')
+    }
+
+    // Step 3: Create new passkey
     const challenge = crypto.getRandomValues(new Uint8Array(32))
     const userId = crypto.getRandomValues(new Uint8Array(16))
 
@@ -101,7 +144,7 @@ export class PasskeyECDSASigner {
       rp.id = this.config.rpId
     }
 
-    // Step 2: Create passkey with PRF enabled using PIN hash as input
+    // Create passkey with PRF enabled using PIN hash as input
     const credential = (await navigator.credentials.create({
       publicKey: {
         challenge,
@@ -139,10 +182,11 @@ export class PasskeyECDSASigner {
       throw new Error('PRF extension not supported')
     }
 
-    // Step 3: Return credential ID only
+    // Step 4: Return credential ID only
     // User will authenticate separately when ready to unlock wallet
     return {
       credentialId: this.bufferToBase64(credential.rawId),
+      isExisting: false,
     }
   }
 
