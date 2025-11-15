@@ -247,89 +247,90 @@ If you forget your PIN, you cannot recover access to that specific wallet. This 
 
 ## Research & Implementation Journey
 
-### The Challenge: Cross-Device Signature Consistency
+### The Discovery: PRF Syncs Across Devices!
 
-When we first implemented passkey-based signing using WebAuthn's PRF extension, we discovered an important limitation:
+Initial assumption was that WebAuthn's PRF extension would be **device-specific** (different PRF output per device). However, through empirical testing, we discovered something important:
 
-**Problem**: Same passkey on different devices (Mac, iPhone) produced different signatures for the same message.
+**Discovery**: PRF output DOES sync within the same ecosystem (Apple/Google)!
 
-### Why This Happened
+### Empirical Testing Results
 
-WebAuthn's PRF (Pseudo-Random Function) extension is **device-specific**:
-
-- PRF uses the device's Secure Enclave or TPM
-- Each device generates a unique PRF output
-- iCloud Keychain syncs the **credential ID**, not the PRF secret
-- Different PRF output = Different private key = Different signature
-
-Example:
+Testing with the same passkey + same PIN across devices:
 
 ```
-Mac:    PRF(biometric_secret_mac) → output_A → private_key_A → signature_A
-iPhone: PRF(biometric_secret_iphone) → output_B → private_key_B → signature_B
+Mac (Chrome):  PRF(sha256("123456")) → output: 0xaE6C...8BCe
+iPhone (Safari): PRF(sha256("123456")) → output: 0xaE6C...8BCe ✅ IDENTICAL!
+
+Credential ID: gz2nYRbKq8us/Dyjxn8UFtqbyZs= (synced via iCloud Keychain)
+PRF Output: SAME across both devices!
 ```
 
-### Solution: PIN-Based Deterministic Key Derivation
+**Conclusion**: Passkey syncing via iCloud Keychain (Apple) or Google Password Manager (Google) also syncs the PRF secret material, resulting in identical PRF outputs across devices within the same ecosystem.
 
-After researching various approaches, we implemented a **two-layer security model**:
+### Current Implementation: PRF + PIN Key Derivation
+
+We use a **two-layer security model** that leverages this discovery:
 
 #### Layer 1: Biometric Authentication (WebAuthn PRF)
 
 - User authenticates with Face ID/Touch ID/Windows Hello
-- PRF extension verifies user identity
-- Protects against unauthorized passkey access
-- Hardware-backed security
+- PRF extension requires biometric verification
+- Hardware-backed by device's secure enclave
+- Passkeys sync automatically via iCloud Keychain or Google Password Manager
 
-#### Layer 2: PIN-Based Key Derivation
+#### Layer 2: PIN-Based Deterministic PRF Input
 
-- Private key derived from: `keccak256(credential_id + pin)`
-- Credential ID syncs via iCloud/Google Keychain
-- User memorizes 6-digit PIN
-- Same credential ID + same PIN = same private key across all devices
+- PIN is hashed: `pinHash = sha256(PIN)`
+- PRF uses PIN hash as deterministic input: `PRF(pinHash)`
+- Private key derived from PRF output: `privateKey = keccak256(PRF(pinHash))`
+- User memorizes 6-digit PIN (not synced for added security)
 
 ### How It Works
 
 ```
 Registration (Mac):
-1. User creates passkey (biometric prompt)
+1. User creates passkey with biometric authentication
 2. User sets 6-digit PIN: "123456"
-3. System derives: private_key = keccak256(credential_id + "123456")
-4. Address generated: 0xABC...123
+3. pinHash = sha256("123456")
+4. PRF computed: prf_output = PRF(pinHash)
+5. Private key derived: privateKey = keccak256(prf_output)
+6. Wallet address: 0xaE6C...8BCe
 
-Authentication (iPhone):
-1. Passkey syncs via iCloud (credential_id is identical)
+Cross-Device Usage (iPhone after iCloud sync):
+1. Passkey syncs via iCloud Keychain (includes PRF secret material)
 2. User enters same PIN: "123456"
-3. User authenticates with Face ID
-4. System derives: private_key = keccak256(credential_id + "123456")
-5. Same credential_id + same PIN = SAME private key ✅
-6. Signing same message → SAME signature ✅
+3. pinHash = sha256("123456") // Same hash
+4. User authenticates with Face ID
+5. PRF computed: prf_output = PRF(pinHash) // SAME output!
+6. Private key derived: privateKey = keccak256(prf_output)
+7. Wallet address: 0xaE6C...8BCe ✅ IDENTICAL!
+8. Signing same message → SAME signature ✅
 ```
 
-### Why No IndexedDB?
+### Smart Passkey Detection
 
-Initially, we considered storing credential metadata in IndexedDB for verification. However:
+To prevent duplicate passkey creation across devices:
 
-**IndexedDB limitations:**
+**Algorithm:**
+1. User clicks "Setup Passkey with PIN"
+2. App first tries to **authenticate** with existing passkey
+3. If found → Derive wallet immediately, cache it, ready to sign!
+4. If not found → Create new passkey
 
-- Only accessible within one browser
-- Doesn't sync across devices or browsers
-- Defeats the purpose of passkey sync
-
-**Better approach:**
-
-- Passkeys sync automatically via iCloud/Google
-- PIN is memorized by user (like a password)
-- No local storage needed
-- Works seamlessly across all browsers and devices
+**Benefits:**
+- No localStorage or persistent cache needed
+- Works across all devices and browsers
+- Prevents duplicate passkeys
+- Single authentication when reusing existing passkey
 
 ### Security Model
 
 **What protects your wallet:**
 
-1. **Biometric authentication** - Can't use passkey without Face ID/Touch ID
-2. **6-digit PIN** - Required to derive the correct private key
-3. **Hardware-backed security** - PRF uses Secure Enclave/TPM
-4. **No private key storage** - Keys derived on-demand, never stored
+1. **Biometric authentication** - Required to compute PRF output
+2. **6-digit PIN** - Creates deterministic PRF input (sha256 hash)
+3. **Hardware-backed PRF** - Computation happens in Secure Enclave/TPM
+4. **Session-based caching** - Wallet cached in-memory only (cleared on tab close)
 
 **Trade-offs:**
 
