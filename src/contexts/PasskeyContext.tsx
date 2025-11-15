@@ -31,6 +31,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [cachedWallet, setCachedWallet] = useState<ethers.Wallet | null>(null)
   const [signer] = useState(() => new PasskeyECDSASigner())
+  const [previousAddress, setPreviousAddress] = useState<string | null>(null)
 
   // Track registered addresses in session storage (per-session, not persistent)
   const [registeredAddresses, setRegisteredAddresses] = useState<Set<string>>(
@@ -105,11 +106,17 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
 
   // Reset authentication state and check passkey when address changes
   useEffect(() => {
-    // Reset auth state - this is intentional when address changes
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCachedWallet(null)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsAuthenticated(false)
+    // Only reset auth state if the address actually changed (not on registeredAddresses update)
+    const addressChanged = activeAddress !== previousAddress
+
+    if (addressChanged) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCachedWallet(null)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsAuthenticated(false)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPreviousAddress(activeAddress)
+    }
 
     // Check passkey status
     if (!activeAddress) {
@@ -123,7 +130,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
     setHasPasskey(registeredAddresses.has(activeAddress.toLowerCase()))
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsChecking(false)
-  }, [activeAddress, registeredAddresses])
+  }, [activeAddress, registeredAddresses, previousAddress])
 
   return (
     <PasskeyContext.Provider
