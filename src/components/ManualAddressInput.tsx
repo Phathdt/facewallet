@@ -3,7 +3,7 @@ import { isAddress } from 'viem'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useAddress } from '@/contexts/AddressContext'
+import { useAddress } from '@/hooks/useAddress'
 import { AlertCircle, CheckCircle2, X } from 'lucide-react'
 
 interface ValidationResult {

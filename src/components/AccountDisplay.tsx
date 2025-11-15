@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Copy, CheckCircle2, X, Wallet } from 'lucide-react'
 import { useState } from 'react'
-import { useAddress } from '@/contexts/AddressContext'
+import { useAddress } from '@/hooks/useAddress'
 
 export function AccountDisplay() {
   const { addressState, activeAddress, clearManualAddress, mode, setMode } =

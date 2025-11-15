@@ -3,8 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CheckCircle2, Fingerprint, AlertCircle, LogOut } from 'lucide-react'
-import { useAddress } from '@/contexts/AddressContext'
-import { usePasskey } from '@/contexts/PasskeyContext'
+import { useAddress } from '@/hooks/useAddress'
+import { usePasskey } from '@/hooks/usePasskey'
 
 export function PasskeyManager() {
   const { activeAddress } = useAddress()

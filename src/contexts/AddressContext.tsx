@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useAccount } from 'wagmi'
+import { AddressContext } from './AddressContext.context'
 
 const STORAGE_KEY = 'facewallet_manual_address'
 const MODE_STORAGE_KEY = 'facewallet_address_mode'
@@ -10,17 +11,6 @@ interface AddressState {
   address: string | null
   source: 'wallet' | 'manual' | null
 }
-
-interface AddressContextValue {
-  addressState: AddressState
-  mode: AddressMode
-  setMode: (mode: AddressMode) => void
-  setManualAddress: (address: string) => void
-  clearManualAddress: () => void
-  activeAddress: string | null
-}
-
-const AddressContext = createContext<AddressContextValue | undefined>(undefined)
 
 // Load manual address from localStorage (only on initial load)
 const loadManualAddressFromStorage = (): string | null => {
@@ -101,12 +91,4 @@ export function AddressProvider({ children }: { children: ReactNode }) {
       {children}
     </AddressContext.Provider>
   )
-}
-
-export function useAddress() {
-  const context = useContext(AddressContext)
-  if (context === undefined) {
-    throw new Error('useAddress must be used within an AddressProvider')
-  }
-  return context
 }

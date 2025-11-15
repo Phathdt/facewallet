@@ -1,6 +1,6 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
-import { useAddress } from '@/contexts/AddressContext'
+import { useAddress } from '@/hooks/useAddress'
 import { AccountDisplay } from '@/components/AccountDisplay'
 import { PasskeyManager } from '@/components/PasskeyManager'
 import { SignMessage } from '@/components/SignMessage'

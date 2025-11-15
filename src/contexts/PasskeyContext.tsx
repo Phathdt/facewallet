@@ -1,28 +1,8 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  type ReactNode,
-} from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { ethers } from 'ethers'
 import { PasskeyECDSASigner } from '@/lib/passkey/PasskeyECDSASigner'
-import { useAddress } from './AddressContext'
-
-interface PasskeyContextValue {
-  hasPasskey: boolean
-  isChecking: boolean
-  isAuthenticated: boolean
-  cachedWallet: ethers.Wallet | null
-  signer: PasskeyECDSASigner
-  checkPasskey: () => Promise<void>
-  refreshPasskey: () => void
-  authenticate: (pin: string) => Promise<ethers.Wallet>
-  logout: () => void
-}
-
-const PasskeyContext = createContext<PasskeyContextValue | undefined>(undefined)
+import { useAddress } from '@/hooks/useAddress'
+import { PasskeyContext } from './PasskeyContext.context'
 
 export function PasskeyProvider({ children }: { children: ReactNode }) {
   const { activeAddress } = useAddress()
@@ -148,12 +128,4 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
       {children}
     </PasskeyContext.Provider>
   )
-}
-
-export function usePasskey() {
-  const context = useContext(PasskeyContext)
-  if (context === undefined) {
-    throw new Error('usePasskey must be used within a PasskeyProvider')
-  }
-  return context
 }

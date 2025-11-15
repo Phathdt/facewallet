@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useSignMessage } from 'wagmi'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, Info } from 'lucide-react'
-import { useAddress } from '@/contexts/AddressContext'
-import { usePasskey } from '@/contexts/PasskeyContext'
+import { useAddress } from '@/hooks/useAddress'
+import { usePasskey } from '@/hooks/usePasskey'
 
 export function SignMessage() {
   const { activeAddress, addressState } = useAddress()

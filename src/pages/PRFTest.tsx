@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ethers } from 'ethers'
 import { AlertCircle, CheckCircle2, Info } from 'lucide-react'
-import { useAddress } from '@/contexts/AddressContext'
+import { useAddress } from '@/hooks/useAddress'
 
 export function PRFTest() {
   const { activeAddress, setManualAddress } = useAddress()
