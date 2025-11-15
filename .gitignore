@@ -37,3 +37,4 @@ dist-ssr
 
 # Deprecated files
 *.deprecated
+.vercel
