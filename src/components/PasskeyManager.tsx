@@ -121,12 +121,13 @@ export function PasskeyManager() {
               ) : (
                 <>
                   <p className="mb-1 font-medium">
-                    Create a passkey to enable biometric signing with PIN
+                    Setup passkey to enable biometric signing with PIN
                   </p>
                   <p className="text-blue-700">
-                    You'll create a 6-digit PIN and authenticate with
-                    biometrics. Same PIN + same passkey = same signature across
-                    all devices.
+                    Enter a 6-digit PIN and authenticate with biometrics. If you
+                    already have a passkey on another device, it will be
+                    detected and reused. Otherwise, a new passkey will be
+                    created.
                   </p>
                 </>
               )}
@@ -138,7 +139,7 @@ export function PasskeyManager() {
         {!hasPasskey || !isAuthenticated ? (
           <div className="space-y-2">
             <Label htmlFor="pin" className="text-sm font-medium text-gray-700">
-              {!hasPasskey ? 'Create 6-digit PIN' : 'Enter your PIN'}
+              {!hasPasskey ? 'Enter 6-digit PIN' : 'Enter your PIN'}
             </Label>
             <Input
               id="pin"
@@ -153,7 +154,7 @@ export function PasskeyManager() {
             />
             <p className="text-xs text-gray-500">
               {!hasPasskey
-                ? 'This PIN will be used to derive your signing key. Keep it secure!'
+                ? 'Use the same PIN across all devices. If you have a passkey on another device, enter that PIN. Otherwise, create a new one.'
                 : 'Use the same PIN you created when registering the passkey'}
             </p>
           </div>
@@ -165,7 +166,7 @@ export function PasskeyManager() {
             disabled={isLoading || pin.length !== 6}
             className="w-full"
           >
-            {isLoading ? 'Creating Passkey...' : 'Create Passkey with PIN'}
+            {isLoading ? 'Checking for Passkey...' : 'Setup Passkey with PIN'}
           </Button>
         ) : isAuthenticated ? (
           <Button onClick={handleLogout} variant="outline" className="w-full">
