@@ -14,6 +14,7 @@ interface PasskeyContextValue {
   hasPasskey: boolean
   isChecking: boolean
   isAuthenticated: boolean
+  cachedWallet: ethers.Wallet | null
   signer: PasskeyECDSASigner
   checkPasskey: () => Promise<void>
   refreshPasskey: () => void
@@ -130,6 +131,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
         hasPasskey,
         isChecking,
         isAuthenticated,
+        cachedWallet,
         signer,
         checkPasskey,
         refreshPasskey,

@@ -7,7 +7,7 @@ import { usePasskey } from '@/contexts/PasskeyContext'
 
 export function SignMessage() {
   const { activeAddress, addressState } = useAddress()
-  const { hasPasskey, isAuthenticated, authenticate, isChecking } = usePasskey()
+  const { hasPasskey, isAuthenticated, cachedWallet, isChecking } = usePasskey()
   const [message, setMessage] = useState('')
   const [signature, setSignature] = useState('')
   const [signingMethod, setSigningMethod] = useState<
@@ -47,16 +47,19 @@ export function SignMessage() {
       return
     }
 
+    // Check if cached wallet exists
+    if (!cachedWallet) {
+      setError('Wallet not found. Please re-authenticate with your passkey.')
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     setSigningMethod('passkey')
 
     try {
-      // Use context's authenticate with empty PIN (will use cached wallet)
-      const wallet = await authenticate('')
-
-      // Sign message with cached or newly authenticated wallet
-      const sig = await wallet.signMessage(message)
+      // Use the cached wallet directly - NO re-authentication needed!
+      const sig = await cachedWallet.signMessage(message)
 
       setSignature(sig)
     } catch (error) {
