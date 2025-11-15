@@ -13,50 +13,29 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
   const [signer] = useState(() => new PasskeyECDSASigner())
   const [previousAddress, setPreviousAddress] = useState<string | null>(null)
 
-  // Track registered addresses in localStorage (persists across sessions)
-  const [registeredAddresses, setRegisteredAddresses] = useState<Set<string>>(
-    () => {
-      const stored = localStorage.getItem('facewallet_registered_addresses')
-      return stored ? new Set(JSON.parse(stored)) : new Set()
-    }
-  )
-
-  // Check passkey status from localStorage cache
+  // Simple passkey check - no caching, no localStorage
+  // The register() method will detect existing passkeys automatically
   const checkPasskey = useCallback(async () => {
-    if (!activeAddress) {
-      setHasPasskey(false)
-      return
-    }
+    // Don't assume anything - let register() detect existing passkeys
+    setHasPasskey(false)
+  }, [])
 
-    // Check localStorage cache
-    // Note: This is just a hint. The actual passkey detection happens in register()
-    // which will reuse existing passkey if found
-    const hasInCache = registeredAddresses.has(activeAddress.toLowerCase())
-    setHasPasskey(hasInCache)
-  }, [activeAddress, registeredAddresses])
-
-  // Force refresh passkey status (called after successful registration)
+  // Force refresh passkey status (called after successful authentication)
   const refreshPasskey = useCallback(() => {
     if (activeAddress) {
-      const newSet = new Set(registeredAddresses)
-      newSet.add(activeAddress.toLowerCase())
-      setRegisteredAddresses(newSet)
-      localStorage.setItem(
-        'facewallet_registered_addresses',
-        JSON.stringify(Array.from(newSet))
-      )
+      // Mark as having passkey only after successful registration/authentication
       setHasPasskey(true)
     }
-  }, [activeAddress, registeredAddresses])
+  }, [activeAddress])
 
-  // Authenticate with passkey and cache wallet
+  // Authenticate with passkey and cache wallet (in-memory only, per session)
   const authenticate = useCallback(
     async (pin: string) => {
       if (!activeAddress) {
         throw new Error('No active address')
       }
 
-      // Return cached wallet if already authenticated
+      // Return cached wallet if already authenticated in this session
       if (isAuthenticated && cachedWallet) {
         return cachedWallet
       }
@@ -65,15 +44,6 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
         const result = await signer.authenticate(activeAddress, pin)
         setCachedWallet(result.wallet)
         setIsAuthenticated(true)
-
-        // Mark this address as having a passkey (successful auth proves it exists)
-        const newSet = new Set(registeredAddresses)
-        newSet.add(activeAddress.toLowerCase())
-        setRegisteredAddresses(newSet)
-        localStorage.setItem(
-          'facewallet_registered_addresses',
-          JSON.stringify(Array.from(newSet))
-        )
         setHasPasskey(true)
 
         return result.wallet
@@ -83,7 +53,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
         throw error
       }
     },
-    [activeAddress, signer, isAuthenticated, cachedWallet, registeredAddresses]
+    [activeAddress, signer, isAuthenticated, cachedWallet]
   )
 
   // Logout and clear cached wallet
