@@ -12,7 +12,7 @@ export function DebugInfo() {
   if (!isVisible) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-md rounded-lg border border-gray-300 bg-black p-4 text-xs text-white shadow-lg">
+    <div className="fixed right-4 bottom-4 z-50 max-w-md rounded-lg border border-gray-300 bg-black p-4 text-xs text-white shadow-lg">
       <div className="mb-2 font-bold">Debug Info</div>
       <div className="space-y-1">
         <div>

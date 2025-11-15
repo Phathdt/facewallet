@@ -10,10 +10,16 @@ export class PasskeyECDSASigner {
 
   constructor(config?: Partial<SignerConfig>) {
     this.storage = new PasskeyStorage()
+
+    // For Vercel deployments (vercel.app), don't specify rpId
+    // Let it default to the current origin's effective domain
+    const shouldOmitRpId = window.location.hostname.endsWith('.vercel.app')
+
     this.config = {
       rpName: config?.rpName || import.meta.env.VITE_RP_NAME || 'FaceWallet',
-      rpId:
-        config?.rpId || import.meta.env.VITE_RP_ID || window.location.hostname,
+      rpId: shouldOmitRpId
+        ? undefined
+        : config?.rpId || import.meta.env.VITE_RP_ID || undefined,
       prfSalt: config?.prfSalt || 'ecdsa-signing-key-v1',
       ...config,
     }
@@ -27,9 +33,10 @@ export class PasskeyECDSASigner {
     console.log('  hostname:', window.location.hostname)
     console.log('  origin:', window.location.origin)
     console.log('  href:', window.location.href)
+    console.log('Is Vercel deployment:', shouldOmitRpId)
     console.log('Final Config:')
     console.log('  rpName:', this.config.rpName)
-    console.log('  rpId:', this.config.rpId)
+    console.log('  rpId:', this.config.rpId || '(omitted - will use origin)')
     console.log('  prfSalt:', this.config.prfSalt)
     console.log('=======================================')
   }
@@ -96,41 +103,50 @@ export class PasskeyECDSASigner {
     console.log('=== Passkey Registration ===')
     console.log('Wallet Address:', walletAddress)
     console.log('Challenge:', challenge)
-    console.log('RP ID:', this.config.rpId)
+    console.log('RP ID:', this.config.rpId || '(omitted)')
     console.log('RP Name:', this.config.rpName)
     console.log('Window hostname:', window.location.hostname)
     console.log('============================')
 
     try {
+      // Build rp object conditionally
+      const rp: { name: string; id?: string } = {
+        name: this.config.rpName,
+      }
+
+      // Only include id if it's defined
+      if (this.config.rpId) {
+        rp.id = this.config.rpId
+      }
+
+      console.log('RP object:', rp)
+
       const credential = (await navigator.credentials.create({
         publicKey: {
           challenge,
-          rp: {
-            name: this.config.rpName,
-            id: this.config.rpId,
+          rp,
+          user: {
+            id: userId,
+            name: truncatedAddress,
+            displayName: `Passkey for ${truncatedAddress}`,
           },
-        user: {
-          id: userId,
-          name: truncatedAddress,
-          displayName: `Passkey for ${truncatedAddress}`,
-        },
-        pubKeyCredParams: [
-          { type: 'public-key', alg: -7 }, // ES256
-          { type: 'public-key', alg: -257 }, // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          residentKey: 'required',
-          userVerification: 'required',
-        },
-        extensions: {
-          prf: {
-            eval: {
-              first: new TextEncoder().encode(this.config.prfSalt),
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -7 }, // ES256
+            { type: 'public-key', alg: -257 }, // RS256
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            residentKey: 'required',
+            userVerification: 'required',
+          },
+          extensions: {
+            prf: {
+              eval: {
+                first: new TextEncoder().encode(this.config.prfSalt),
+              },
             },
           },
         },
-      },
       })) as PublicKeyCredential
 
       console.log('✅ Passkey created successfully!')
@@ -192,7 +208,7 @@ export class PasskeyECDSASigner {
     // DEBUG LOGGING
     console.log('=== Passkey Authentication ===')
     console.log('Wallet Address:', walletAddress)
-    console.log('RP ID:', this.config.rpId)
+    console.log('RP ID:', this.config.rpId || '(omitted)')
     console.log('Window hostname:', window.location.hostname)
     console.log('===============================')
 
@@ -211,20 +227,30 @@ export class PasskeyECDSASigner {
     ]
 
     try {
-      const assertion = (await navigator.credentials.get({
-        publicKey: {
-          challenge,
-          rpId: this.config.rpId,
-          allowCredentials,
-          userVerification: 'required',
-          extensions: {
-            prf: {
-              eval: {
-                first: new TextEncoder().encode(this.config.prfSalt),
-              },
+      // Build options object conditionally
+      const getOptions: PublicKeyCredentialRequestOptions = {
+        challenge,
+        allowCredentials:
+          allowCredentials.length > 0 ? allowCredentials : undefined,
+        userVerification: 'required',
+        extensions: {
+          prf: {
+            eval: {
+              first: new TextEncoder().encode(this.config.prfSalt),
             },
           },
         },
+      }
+
+      // Only include rpId if it's defined
+      if (this.config.rpId) {
+        getOptions.rpId = this.config.rpId
+      }
+
+      console.log('Get options rpId:', getOptions.rpId || '(omitted)')
+
+      const assertion = (await navigator.credentials.get({
+        publicKey: getOptions,
       })) as PublicKeyCredential
 
       console.log('✅ Passkey authentication successful!')
