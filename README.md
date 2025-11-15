@@ -235,6 +235,7 @@ Here's how FaceWallet uses PRF + PIN to sign Ethereum messages:
 - Wrong PIN creates different wallet (deterministic derivation)
 - No "forgot PIN" recovery (by design - non-custodial)
 - Each new browser tab requires fresh authentication (session-based cache)
+- PRF sync behavior is empirically observed, not officially guaranteed by specification
 
 **Forgot PIN?**
 
@@ -266,6 +267,11 @@ PRF Output: SAME across both devices!
 ```
 
 **Conclusion**: Passkey syncing via iCloud Keychain (Apple) or Google Password Manager (Google) also syncs the PRF secret material, resulting in identical PRF outputs across devices within the same ecosystem.
+
+**Important Note**: This behavior is based on empirical testing and observation. While our tests consistently show identical PRF outputs across synced devices, this is not explicitly documented in official WebAuthn/FIDO2 specifications. The behavior appears reliable for iCloud Keychain (Apple ecosystem) and likely works similarly for Google Password Manager, but users should be aware that:
+- This is implementation-specific behavior, not guaranteed by specification
+- Future platform updates could theoretically change this behavior
+- Device-bound (non-synced) passkeys will produce different PRF outputs per device
 
 ### Current Implementation: PRF + PIN Key Derivation
 
