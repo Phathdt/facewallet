@@ -64,7 +64,8 @@ export class PasskeyECDSASigner {
   }
 
   /**
-   * Register a new passkey for a wallet address and derive signing key
+   * Register a new passkey for a wallet address
+   * Only creates the passkey - does NOT authenticate immediately (better UX)
    * Uses PRF(sha256(PIN)) approach for higher security
    */
   async register(
@@ -72,8 +73,6 @@ export class PasskeyECDSASigner {
     pin: string
   ): Promise<{
     credentialId: string
-    address: string
-    wallet: ethers.Wallet
   }> {
     // Validate PIN
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
@@ -140,56 +139,10 @@ export class PasskeyECDSASigner {
       throw new Error('PRF extension not supported')
     }
 
-    // Step 3: Immediately authenticate to get PRF output
-    // (PRF only returns output on .get(), not .create())
-    const getOptions: PublicKeyCredentialRequestOptions = {
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: [
-        {
-          id: credential.rawId,
-          type: 'public-key',
-        },
-      ],
-      userVerification: 'required',
-      timeout: 60000,
-      extensions: {
-        prf: {
-          eval: {
-            first: pinHash, // Same input as registration
-          },
-        },
-      },
-    }
-
-    // Only include rpId if it's defined
-    if (this.config.rpId) {
-      getOptions.rpId = this.config.rpId
-    }
-
-    const assertion = (await navigator.credentials.get({
-      publicKey: getOptions,
-    })) as PublicKeyCredential
-
-    // Step 4: Get PRF output
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const assertionResults = assertion.getClientExtensionResults() as any
-    const prfResult = assertionResults.prf
-
-    if (!prfResult?.results?.first) {
-      throw new Error('PRF output not available')
-    }
-
-    // Step 5: Derive private key from PRF output
-    const prfOutput = new Uint8Array(prfResult.results.first)
-    const privateKeyHex = keccak256(prfOutput)
-
-    // Create wallet from PRF-derived key
-    const wallet = new ethers.Wallet(privateKeyHex)
-
+    // Step 3: Return credential ID only
+    // User will authenticate separately when ready to unlock wallet
     return {
       credentialId: this.bufferToBase64(credential.rawId),
-      address: wallet.address,
-      wallet,
     }
   }
 
