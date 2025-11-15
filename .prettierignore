@@ -1,0 +1,32 @@
+# Build outputs
+dist
+dist-ssr
+build
+.next
+out
+
+# Dependencies
+node_modules
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+
+# Claude sessions
+.claude_sessions
+
+# Other
+*.min.js
+*.min.css
+coverage
+.cache

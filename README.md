@@ -1,73 +1,965 @@
-# React + TypeScript + Vite
+# FaceWallet
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Passwordless Ethereum Wallet Using Passkeys and PRF for Deterministic Key Derivation**
 
-Currently, two official plugins are available:
+FaceWallet is a client-side Ethereum wallet that eliminates seed phrases and passwords by using biometric authentication (Face ID, Touch ID, Windows Hello) to derive deterministic private keys through the WebAuthn PRF (Pseudo-Random Function) extension.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+> No seed phrases. No passwords. Just your face or fingerprint.
 
-## React Compiler
+## Table of Contents
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- [How It Works - The PRF Magic](#how-it-works---the-prf-magic)
+- [Features](#features)
+- [Browser Compatibility](#browser-compatibility)
+- [Getting Started](#getting-started)
+- [Usage Guide](#usage-guide)
+- [Security Considerations](#security-considerations)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
-## Expanding the ESLint configuration
+## How It Works - The PRF Magic
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Traditional wallets require you to manage seed phrases (12-24 words) or private keys, which can be lost, stolen, or forgotten. FaceWallet uses a fundamentally different approach powered by the WebAuthn PRF (Pseudo-Random Function) extension.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### What is WebAuthn PRF?
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+PRF is a browser extension that allows web applications to derive deterministic cryptographic outputs from passkey authentication. Think of it as a "secure random number generator" that:
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- Always produces the **same output** for the same biometric authentication
+- Is **hardware-backed** by your device's secure enclave (Secure Enclave on iOS/macOS, TPM on Windows)
+- Never exposes the underlying biometric secret
+- Is **domain-bound** to your website's origin
+
+### The Signing Flow
+
+Here's how FaceWallet uses PRF to sign Ethereum messages:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 1: User Sets Ethereum Address                             │
+│ ───────────────────────────────────────────────────────────────│
+│ Two options:                                                    │
+│ • Connect wallet (MetaMask, WalletConnect, etc.)               │
+│ • Enter address manually                                       │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 2: Create Passkey (First Time Only)                       │
+│ ───────────────────────────────────────────────────────────────│
+│ navigator.credentials.create({                                  │
+│   extensions: {                                                 │
+│     prf: {                                                      │
+│       eval: {                                                   │
+│         first: "ecdsa-signing-key-v1"  // PRF Salt             │
+│       }                                                         │
+│     }                                                           │
+│   }                                                             │
+│ })                                                              │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 3: Biometric Authentication                               │
+│ ───────────────────────────────────────────────────────────────│
+│ Device prompts: "Use Face ID to sign in to FaceWallet"         │
+│ User authenticates with biometric (Face/Touch ID)              │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 4: PRF Derives Deterministic Output                       │
+│ ───────────────────────────────────────────────────────────────│
+│ Secure Enclave:                                                 │
+│   biometric_secret (never exposed)                             │
+│   + salt ("ecdsa-signing-key-v1")                              │
+│   ↓                                                             │
+│   PRF_OUTPUT = HMAC-SHA256(biometric_secret, salt)             │
+│   ↓                                                             │
+│   Returns: 32 bytes (deterministic, always the same)           │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 5: Generate Ethereum Private Key                          │
+│ ───────────────────────────────────────────────────────────────│
+│ privateKey = validateSecp256k1(PRF_OUTPUT)                     │
+│                                                                 │
+│ If PRF_OUTPUT is not valid for secp256k1:                      │
+│   privateKey = SHA256(PRF_OUTPUT)                              │
+│   Repeat until valid                                           │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 6: Sign Message                                           │
+│ ───────────────────────────────────────────────────────────────│
+│ wallet = new ethers.Wallet(privateKey)                         │
+│ signature = await wallet.signMessage(message)                  │
+│                                                                 │
+│ Private key is immediately discarded (not stored anywhere)     │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Result: Message Signed!                                        │
+│ ───────────────────────────────────────────────────────────────│
+│ Next time user wants to sign:                                  │
+│ • Authenticate with biometric                                  │
+│ • PRF produces SAME output                                     │
+│ • SAME private key derived                                     │
+│ • SAME signing capability                                      │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Why This is Secure
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+**Hardware-Backed Key Derivation**
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- PRF output is generated inside the device's secure enclave (Secure Enclave on Apple devices, TPM on Windows)
+- The biometric secret never leaves the secure hardware
+- Private keys are derived on-demand and immediately discarded after use
+
+**Biometric-Gated Access**
+
+- Every signing operation requires fresh biometric authentication
+- No way to sign messages without physical presence and biometric verification
+- Protection against remote attacks and unauthorized access
+
+**Domain-Bound Security**
+
+- Passkeys are cryptographically bound to your website's domain
+- Cannot be used on phishing sites or different domains
+- Prevents credential theft and replay attacks
+
+**Non-Exportable Design**
+
+- Private keys are never stored anywhere (not in memory, disk, or cloud)
+- Cannot be extracted, stolen, or lost
+- Derived fresh from PRF on each use
+
+**Deterministic but Unique**
+
+- Same biometric + same device + same salt = same private key (always)
+- Different device or browser = completely different private key
+- Each passkey produces a unique signing key
+
+### Important Design Decision: Address Linking
+
+FaceWallet links passkeys to **user-provided Ethereum addresses** rather than using PRF-derived addresses. Here's why:
+
+```typescript
+// User connects wallet or enters address manually
+const userAddress = '0x1234...abcd'
+
+// User creates passkey with biometric authentication
+const prfOutput = authenticate_and_get_prf()
+
+// Derive SIGNING key from PRF (not used for address)
+const signingKey = derive_private_key(prfOutput)
+
+// Store the link: userAddress -> passkey credential ID
+storeCredential({
+  address: userAddress, // User's chosen address
+  credentialId: 'abc123...', // Passkey identifier
+})
+
+// Later, when signing:
+// 1. User selects their address: 0x1234...abcd
+// 2. Authenticate with passkey linked to that address
+// 3. PRF derives the SAME signing key
+// 4. Sign message with that key
 ```
+
+**Benefits:**
+
+- Users can use their existing Ethereum addresses
+- Same address across multiple devices if desired
+- Separation of concerns: identity (address) vs signing capability (PRF key)
+- Flexibility to use wallet connections or manual entry
+
+**Note:** The PRF-derived key is used purely for **signing** messages. It is NOT used to derive the Ethereum address shown to the user.
+
+## Features
+
+### Core Capabilities
+
+- **Biometric Message Signing**: Sign Ethereum messages using Face ID, Touch ID, or Windows Hello
+- **No Seed Phrase Management**: Zero risk of losing or exposing seed phrases
+- **Hardware Security**: Private keys derived in secure enclave, never stored or exposed
+- **Two Address Modes**:
+  - Connect existing wallet (MetaMask, WalletConnect, Coinbase Wallet, etc.)
+  - Enter Ethereum address manually
+- **Multiple Passkeys**: Create multiple passkeys for different addresses
+- **Client-Side Only**: No backend servers, no data transmission, fully local
+
+### User Experience
+
+- **Instant Authentication**: Touch your fingerprint or look at your camera to sign
+- **Cross-Device Sync**: Passkeys sync via iCloud Keychain (iOS/macOS) or Google Password Manager (Android/Chrome)
+- **Seamless Integration**: Works alongside traditional Web3 wallets via RainbowKit
+- **Visual Feedback**: Clear status indicators and helpful error messages
+
+## Browser Compatibility
+
+PRF extension support varies by browser and platform:
+
+| Browser     | PRF Support | Min Version | Platform Notes                     |
+| ----------- | ----------- | ----------- | ---------------------------------- |
+| **Chrome**  | ✅ Full     | 108+        | Windows 10+, macOS 13+, Android 9+ |
+| **Edge**    | ✅ Full     | 108+        | Windows 10+, macOS 13+             |
+| **Safari**  | ✅ Full     | 17+         | macOS 14+, iOS 17+                 |
+| **Brave**   | ✅ Full     | 1.47+       | Windows 10+, macOS 13+             |
+| **Firefox** | ❌ None     | N/A         | No PRF support yet                 |
+
+### Platform Authenticator Requirements
+
+- **macOS**: Touch ID or Apple Watch (macOS 14+)
+- **iOS**: Face ID or Touch ID (iOS 17+)
+- **Windows**: Windows Hello (TPM 2.0 required, Windows 10+)
+- **Android**: Fingerprint or Face Unlock (Android 9+, Chrome 108+)
+
+## Getting Started
+
+### Prerequisites
+
+- **Node.js 20+** (LTS recommended)
+- **pnpm** (or npm/yarn)
+- Supported browser (Chrome 108+, Safari 17+, Edge 108+, Brave 1.47+)
+- Platform authenticator (Touch ID, Face ID, Windows Hello, etc.)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/facewallet.git
+cd facewallet
+
+# Install dependencies
+pnpm install
+
+# Create environment file
+cp .env.example .env
+
+# Edit .env and add your WalletConnect Project ID
+# Get one free at https://cloud.walletconnect.com
+# VITE_WALLET_CONNECT_PROJECT_ID=your_project_id_here
+```
+
+### Run Development Server
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in a supported browser.
+
+### Build for Production
+
+```bash
+pnpm build
+pnpm preview
+```
+
+## Usage Guide
+
+### First-Time Setup
+
+**Option 1: Using Wallet Connection**
+
+1. Click **"Connect Wallet"** tab
+2. Click the **Connect Wallet** button
+3. Select your wallet (MetaMask, WalletConnect, etc.) from RainbowKit modal
+4. Approve the connection in your wallet
+5. Your address will be displayed at the top
+6. Click **"Create Passkey"** button
+7. Your browser will prompt: _"Use Touch ID to sign in to FaceWallet"_
+8. Authenticate with your biometric
+9. Passkey created! You can now sign messages
+
+**Option 2: Using Manual Address**
+
+1. Click **"Manual Address"** tab
+2. Enter your Ethereum address (e.g., `0x1234...abcd`)
+3. Click **"Set Address"**
+4. Your address will be displayed at the top
+5. Click **"Create Passkey"** button
+6. Authenticate with your biometric
+7. Passkey created! You can now sign messages
+
+### Signing a Message
+
+1. Ensure you have a passkey created for your active address
+2. Scroll to the **"Sign Message"** section
+3. Enter your message in the text area
+4. Click **"Sign with Passkey"**
+5. Authenticate with your biometric when prompted
+6. Your signature will be displayed below
+
+Example:
+
+```
+Message: "Hello, Ethereum!"
+Signature: 0x1234abcd...
+```
+
+### Switching Between Modes
+
+- Use the tabs at the top to switch between **"Connect Wallet"** and **"Manual Address"**
+- If you have a wallet connected, you can disconnect it to use manual mode
+- If you have a manual address saved, you can clear it to use wallet mode
+- Each mode maintains its own passkey associations
+
+### Managing Multiple Passkeys
+
+- You can create multiple passkeys for different addresses
+- Each passkey is tied to a specific Ethereum address
+- Switch between addresses by connecting different wallets or entering different manual addresses
+- View all your passkeys in the **"Passkey Manager"** section
+
+## Security Considerations
+
+### What Makes FaceWallet Secure?
+
+**1. No Private Key Storage**
+
+```typescript
+// Traditional wallet (UNSAFE if compromised)
+localStorage.setItem('privateKey', '0x1234...') // ❌ Stored in browser
+
+// FaceWallet (SAFE)
+const privateKey = derivePRFKey(biometric) // ✅ Derived on-demand
+await signMessage(privateKey)
+// privateKey discarded, never stored
+```
+
+**2. Hardware-Backed Cryptography**
+
+- All PRF operations happen inside secure hardware (Secure Enclave/TPM)
+- Biometric secrets never exposed to JavaScript or operating system
+- Keys derived in isolated, tamper-resistant environment
+
+**3. Biometric Verification Required**
+
+- Every signature requires fresh biometric authentication
+- No way to sign without physical presence
+- Protection against:
+  - Remote attacks (attacker needs your device + biometric)
+  - Malware (cannot extract PRF output without biometric)
+  - Session hijacking (each operation requires re-authentication)
+
+**4. Domain Binding**
+
+- Passkeys are cryptographically bound to your website origin
+- Phishing protection: passkey won't work on fake sites
+- Cannot be stolen via DNS attacks or domain spoofing
+
+**5. Client-Side Only Architecture**
+
+- No backend servers to hack
+- No API keys to steal
+- No data transmission to third parties
+- Fully air-gapped signing operations
+
+### Threat Model
+
+**What FaceWallet Protects Against:**
+
+- ✅ Seed phrase theft/loss
+- ✅ Private key exposure
+- ✅ Phishing attacks
+- ✅ Remote attacks (no physical access)
+- ✅ Malware keylogging
+- ✅ Session hijacking
+- ✅ Cross-site request forgery
+
+**What FaceWallet Does NOT Protect Against:**
+
+- ❌ Physical device theft + biometric compromise (attacker with your device + spoofed biometric)
+- ❌ Malicious browser extensions with elevated permissions
+- ❌ Compromised operating system or secure enclave (extremely rare)
+- ❌ User signing malicious transactions (always verify what you sign!)
+
+### Account Recovery Considerations
+
+**IMPORTANT:** FaceWallet uses a fundamentally different security model than traditional wallets:
+
+**Traditional Wallet:**
+
+- Seed phrase can be written down and stored safely
+- Can recover on any device with the seed phrase
+- Can export private keys
+
+**FaceWallet:**
+
+- No seed phrase to backup
+- No private key to export
+- Recovery depends on passkey sync:
+  - **iOS/macOS**: Passkeys sync via iCloud Keychain
+  - **Android/Chrome**: Passkeys sync via Google Password Manager
+  - **Windows**: Passkeys stored locally (no sync by default)
+
+**Recovery Strategies:**
+
+1. **Use Passkey Sync (Recommended)**
+   - Enable iCloud Keychain (Apple) or Google Password Manager
+   - Passkeys automatically sync to your other devices
+   - Sign in on new device with same account
+
+2. **Create Multiple Passkeys**
+   - Create passkey on multiple devices
+   - Each device has independent signing capability
+   - Lose one device, still have others
+
+3. **Use Manual Mode for Important Addresses**
+   - For addresses holding significant value, use wallet connection mode
+   - Keep the actual wallet seed phrase backed up separately
+   - FaceWallet provides convenience layer, not primary wallet
+
+4. **Hybrid Approach (Recommended for Production)**
+   - Use FaceWallet for frequent, low-value transactions
+   - Keep traditional wallet (MetaMask, hardware wallet) for high-value operations
+   - Best of both worlds: convenience + security
+
+### Production Deployment Checklist
+
+Before deploying FaceWallet to production:
+
+- [ ] **HTTPS Only**: Enforce HTTPS for all connections (passkeys require secure context)
+- [ ] **Content Security Policy**: Set strict CSP headers to prevent XSS
+- [ ] **Subresource Integrity**: Use SRI for external scripts (RainbowKit, Wagmi)
+- [ ] **Rate Limiting**: Implement client-side rate limiting for API calls
+- [ ] **Error Boundaries**: Add React error boundaries for graceful failure handling
+- [ ] **Security Headers**: Set X-Frame-Options, X-Content-Type-Options, etc.
+- [ ] **Dependency Audit**: Run `pnpm audit` and fix vulnerabilities
+- [ ] **Test on All Browsers**: Verify PRF support detection works correctly
+- [ ] **User Education**: Add clear warnings about account recovery limitations
+- [ ] **Monitoring**: Set up error tracking (Sentry, LogRocket, etc.)
+- [ ] **Testnet Testing**: Test thoroughly on Sepolia/Goerli before mainnet
+
+## Technology Stack
+
+### Frontend Framework
+
+- **React 19** - UI framework with modern hooks and concurrent features
+- **TypeScript 5.9** - Type safety and developer experience
+- **Vite 7** - Lightning-fast build tool and dev server
+
+### Web3 Integration
+
+- **RainbowKit 2.2** - Beautiful wallet connection UI
+- **Wagmi 2.19** - React hooks for Ethereum (accounts, transactions, signing)
+- **Viem 2.39** - TypeScript-first Ethereum utilities
+- **Ethers.js 6.15** - Wallet management and key derivation
+
+### Cryptography
+
+- **@noble/secp256k1 3.0** - Elliptic curve cryptography (secp256k1 validation)
+- **@noble/hashes 2.0** - SHA-256 hashing for key derivation
+- **WebAuthn API** - Browser-native passkey and PRF support
+
+### UI/Styling
+
+- **Tailwind CSS 4.1** - Utility-first CSS framework
+- **shadcn/ui** - High-quality React components (built on Radix UI)
+- **Radix UI** - Unstyled, accessible component primitives
+- **Lucide React** - Beautiful icon library
+
+### Storage
+
+- **IndexedDB (via idb 8.0)** - Client-side credential storage
+
+### Development Tools
+
+- **ESLint 9** - Code linting
+- **Prettier 3** - Code formatting
+- **TypeScript ESLint** - TypeScript-specific linting rules
+
+## Project Structure
+
+```
+facewallet/
+├── src/
+│   ├── components/
+│   │   ├── ui/                      # shadcn/ui components
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── tabs.tsx
+│   │   │   └── tooltip.tsx
+│   │   ├── AccountDisplay.tsx       # Show active address and balance
+│   │   ├── BrowserCompatibility.tsx # PRF support detection and warnings
+│   │   ├── ManualAddressInput.tsx   # Manual address entry form
+│   │   ├── PasskeyManager.tsx       # Create/manage passkeys
+│   │   └── SignMessage.tsx          # Message signing demo
+│   │
+│   ├── contexts/
+│   │   ├── AddressContext.tsx       # Address state management (wallet vs manual)
+│   │   └── PasskeyContext.tsx       # Passkey operations context
+│   │
+│   ├── hooks/
+│   │   └── usePRFSupport.ts         # Detect PRF extension support
+│   │
+│   ├── lib/
+│   │   ├── passkey/
+│   │   │   ├── PasskeyECDSASigner.ts  # Core PRF signer implementation
+│   │   │   ├── storage.ts             # IndexedDB credential storage
+│   │   │   └── types.ts               # TypeScript type definitions
+│   │   │
+│   │   └── wagmi/
+│   │       ├── config.ts              # Wagmi configuration (chains, transports)
+│   │       └── connectors.ts          # Wallet connectors
+│   │
+│   ├── App.tsx                      # Main application component
+│   ├── main.tsx                     # React entry point
+│   └── index.css                    # Global styles and Tailwind imports
+│
+├── public/                          # Static assets
+├── .env.example                     # Environment variable template
+├── package.json                     # Dependencies and scripts
+├── tsconfig.json                    # TypeScript configuration
+├── vite.config.ts                   # Vite configuration
+├── tailwind.config.ts               # Tailwind CSS configuration
+├── eslint.config.js                 # ESLint configuration
+└── prettier.config.js               # Prettier configuration
+```
+
+### Key Files Explained
+
+**`src/lib/passkey/PasskeyECDSASigner.ts`** - The heart of FaceWallet
+
+```typescript
+// Core functionality:
+;-isSupported() - // Check if PRF is available
+  register(address) - // Create new passkey for address
+  authenticate(address) - // Authenticate and derive signing key
+  ensureValidPrivateKey() // Validate secp256k1 compatibility
+```
+
+**`src/contexts/AddressContext.tsx`** - Address mode management
+
+```typescript
+// Manages two address sources:
+- mode: 'wallet' | 'manual'     // Which source is active
+- walletAddress                 // From connected wallet
+- manualAddress                 // User-entered address
+- activeAddress                 // Currently active address
+```
+
+**`src/contexts/PasskeyContext.tsx`** - Passkey operations
+
+```typescript
+// Provides passkey functionality to components:
+;-createPasskey() - // Register new passkey
+  signMessage() - // Sign message with PRF key
+  hasPasskey() - // Check if passkey exists
+  deletePasskey() // Remove passkey
+```
+
+## Development
+
+### Code Quality Commands
+
+```bash
+# Run linter
+pnpm lint
+
+# Fix linting issues automatically
+pnpm lint:fix
+
+# Check code formatting
+pnpm format:check
+
+# Format code automatically
+pnpm format
+```
+
+### Development Workflow
+
+1. **Start dev server**: `pnpm dev`
+2. **Make changes**: Edit files in `src/`
+3. **Check types**: TypeScript checks automatically in your editor
+4. **Lint & format**: Run `pnpm lint:fix && pnpm format`
+5. **Test in browser**: Verify changes work correctly
+6. **Build**: `pnpm build` to ensure no build errors
+7. **Commit**: Follow conventional commit format
+
+### Adding New Features
+
+**Example: Add Transaction Sending**
+
+1. Create new component: `src/components/SendTransaction.tsx`
+2. Add passkey signing logic in `PasskeyContext.tsx`:
+   ```typescript
+   async function sendTransaction(to: string, value: string) {
+     const wallet = await authenticateAndGetWallet()
+     const tx = await wallet.sendTransaction({ to, value })
+     return tx
+   }
+   ```
+3. Integrate into `App.tsx`
+4. Test on testnet (Sepolia)
+5. Update documentation
+
+### Common Development Tasks
+
+**Update Dependencies**
+
+```bash
+pnpm update --latest
+pnpm audit
+pnpm build  # Ensure everything still works
+```
+
+**Add New shadcn/ui Component**
+
+```bash
+npx shadcn@latest add [component-name]
+# Example: npx shadcn@latest add alert-dialog
+```
+
+**Debug PRF Issues**
+
+```typescript
+// Add logging in PasskeyECDSASigner.ts
+console.log('PRF extension results:', extensionResults)
+console.log('PRF output:', prfOutput)
+console.log('Derived private key:', privateKeyHex)
+```
+
+## Deployment
+
+### Deploy to Vercel (Recommended)
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy to production
+vercel --prod
+
+# Set environment variables in Vercel dashboard:
+# VITE_WALLET_CONNECT_PROJECT_ID=your_project_id
+```
+
+### Deploy to Netlify
+
+```bash
+# Install Netlify CLI
+npm i -g netlify-cli
+
+# Build and deploy
+pnpm build
+netlify deploy --prod --dir=dist
+
+# Set environment variables in Netlify dashboard
+```
+
+### Deploy to Cloudflare Pages
+
+```bash
+# Push to GitHub
+git push origin main
+
+# Connect repository in Cloudflare Pages dashboard
+# Build settings:
+#   Build command: pnpm build
+#   Build output directory: dist
+#   Environment variables: VITE_WALLET_CONNECT_PROJECT_ID
+```
+
+### Environment Variables
+
+Set these in your deployment platform:
+
+| Variable                         | Description                    | Required |
+| -------------------------------- | ------------------------------ | -------- |
+| `VITE_WALLET_CONNECT_PROJECT_ID` | WalletConnect Cloud project ID | Yes      |
+
+Get a free WalletConnect Project ID at [cloud.walletconnect.com](https://cloud.walletconnect.com)
+
+### Post-Deployment Verification
+
+After deploying, verify:
+
+1. **HTTPS is enforced**: Passkeys require secure context
+2. **PRF detection works**: Check browser compatibility message
+3. **Wallet connection works**: Test RainbowKit integration
+4. **Manual address works**: Test entering address manually
+5. **Passkey creation works**: Create passkey on production
+6. **Message signing works**: Sign a test message
+7. **Error handling works**: Test unsupported browser behavior
+
+## Troubleshooting
+
+### Browser Says Passkeys Not Supported
+
+**Symptom:** Red warning banner saying "Your browser doesn't support passkeys with PRF extension"
+
+**Solutions:**
+
+1. Check browser version:
+   - Chrome/Edge: Must be 108+
+   - Safari: Must be 17+ (macOS 14+, iOS 17+)
+   - Firefox: Not supported (use Chrome/Safari instead)
+2. Update your browser to the latest version
+3. Try a different browser from the compatibility table above
+4. Ensure you have a platform authenticator:
+   - macOS: Touch ID must be enabled
+   - Windows: Windows Hello must be set up
+   - iOS: Face ID or Touch ID must be configured
+
+### Passkey Creation Fails
+
+**Symptom:** Error when clicking "Create Passkey"
+
+**Common Causes:**
+
+1. **Not on HTTPS**
+   - Solution: Use `https://localhost` or deploy to HTTPS domain
+   - Local dev: Vite automatically uses HTTPS with valid cert
+
+2. **No Platform Authenticator**
+   - Solution: Set up Touch ID, Face ID, or Windows Hello
+   - Check: System Preferences > Touch ID (macOS) or Settings > Sign-in options (Windows)
+
+3. **User Verification Not Available**
+   - Solution: Ensure biometric authentication is enabled and working
+   - Test: Try unlocking your device with biometric
+
+4. **Browser Extension Conflict**
+   - Solution: Disable browser extensions temporarily
+   - Common culprits: Password managers, privacy tools
+
+5. **PRF Extension Not Supported**
+   - Solution: Update browser or switch to supported browser
+   - Check: Browser compatibility table above
+
+**Debug Steps:**
+
+```javascript
+// Open browser console (F12)
+// Check for detailed error messages
+// Look for PRF extension result:
+console.log(credential.getClientExtensionResults())
+```
+
+### Wallet Address Changes
+
+**Symptom:** After authenticating, you get a different address than expected
+
+**This should NOT happen!** PRF is deterministic. Possible causes:
+
+1. **Created New Passkey Instead of Authenticating**
+   - Each new passkey creates a different PRF output
+   - Solution: Delete the unwanted passkey, use the original one
+
+2. **Different Device/Browser**
+   - Each device produces different PRF outputs (by design)
+   - Solution: Create passkey on each device separately
+   - Or: Use iCloud/Google password sync to sync passkeys
+
+3. **Different PRF Salt**
+   - If the salt changed, PRF output changes
+   - Solution: Check `prfSalt` in config (should be `'ecdsa-signing-key-v1'`)
+
+4. **IndexedDB Cleared**
+   - Credential ID lost, app creates new passkey
+   - Solution: Backup your passkey via iCloud/Google sync
+
+**Clarification:**
+
+- FaceWallet shows your **user-chosen address** (from wallet or manual entry)
+- The PRF-derived key is used for **signing**, not address generation
+- If you see a different address, check which mode you're in (wallet vs manual)
+
+### Passkey Works on One Device But Not Another
+
+**Symptom:** Passkey works on iPhone but fails on MacBook (or vice versa)
+
+**Expected Behavior:**
+
+- Passkeys should sync via iCloud Keychain (Apple) or Google Password Manager
+- May take a few minutes to sync
+
+**Solutions:**
+
+1. **Check Sync Settings**
+   - iOS/macOS: Settings > [Your Name] > iCloud > Passwords and Keychain (enabled)
+   - Chrome: Settings > Passwords > Enable password sync
+
+2. **Wait for Sync**
+   - Can take 5-15 minutes for passkeys to sync
+   - Force sync: Turn iCloud Keychain off and on
+
+3. **Create Device-Specific Passkey**
+   - Alternative: Create a separate passkey on each device
+   - Same address, different PRF keys (both can sign)
+
+4. **Check Same Account**
+   - Ensure logged into same iCloud/Google account on both devices
+
+### Message Signing Fails
+
+**Symptom:** Error when clicking "Sign with Passkey"
+
+**Common Causes:**
+
+1. **No Active Passkey**
+   - Solution: Create a passkey first
+
+2. **Authentication Canceled**
+   - User canceled biometric prompt
+   - Solution: Try again, approve biometric prompt
+
+3. **PRF Authentication Failed**
+   - Device failed to derive PRF output
+   - Solution: Recreate passkey
+
+4. **Invalid Message**
+   - Empty message or unsupported characters
+   - Solution: Enter valid message text
+
+**Debug:**
+
+```javascript
+// Check if passkey exists
+const hasPasskey = await passkeyContext.hasPasskey(address)
+console.log('Has passkey:', hasPasskey)
+
+// Check authentication result
+const result = await passkeyContext.signMessage(message)
+console.log('Sign result:', result)
+```
+
+### IndexedDB Quota Exceeded
+
+**Symptom:** "QuotaExceededError" when creating passkey
+
+**Solutions:**
+
+1. Clear browser data for the site
+2. Delete unused passkeys
+3. Check available storage: Chrome DevTools > Application > Storage
+
+### Browser Console Errors
+
+**PRF Extension Error**
+
+```
+Error: PRF extension not supported or failed
+```
+
+- Cause: Browser doesn't support PRF or authentication failed
+- Solution: Check browser version, update browser, verify platform authenticator
+
+**Invalid Private Key Error**
+
+```
+Error: Invalid private key for secp256k1
+```
+
+- This should be handled automatically by `ensureValidPrivateKey()`
+- If you see this: File a bug report, include browser/platform details
+
+**Credential Not Found**
+
+```
+Error: No passkey found for this wallet address
+```
+
+- Cause: Trying to authenticate before creating passkey
+- Solution: Create passkey first
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details
+
+---
+
+## Additional Resources
+
+### WebAuthn & PRF Specification
+
+- [WebAuthn Level 3 Specification](https://w3c.github.io/webauthn/)
+- [PRF Extension Specification](https://w3c.github.io/webauthn/#prf-extension)
+- [Passkeys.dev](https://passkeys.dev/) - Comprehensive passkey guide
+
+### Web3 Documentation
+
+- [RainbowKit Docs](https://www.rainbowkit.com/docs/introduction)
+- [Wagmi Docs](https://wagmi.sh/)
+- [Viem Docs](https://viem.sh/)
+- [Ethers.js Docs](https://docs.ethers.org/v6/)
+
+### Cryptography Libraries
+
+- [@noble/secp256k1](https://github.com/paulmillr/noble-secp256k1)
+- [@noble/hashes](https://github.com/paulmillr/noble-hashes)
+
+### Browser Support
+
+- [Can I Use: WebAuthn](https://caniuse.com/webauthn)
+- [Chrome Platform Status: PRF Extension](https://chromestatus.com/feature/5689381380431872)
+- [WebKit Feature Status: PRF Extension](https://webkit.org/status/#specification-web-authentication-level-3)
+
+---
+
+## Contributing
+
+Contributions are welcome! Please follow these guidelines:
+
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature/your-feature-name`
+3. **Follow code style**: Run `pnpm lint:fix && pnpm format` before committing
+4. **Test thoroughly**: Verify on multiple browsers (Chrome, Safari, Edge)
+5. **Write clear commit messages**: Use conventional commit format
+   - `feat: add transaction sending`
+   - `fix: resolve PRF detection issue on Safari`
+   - `docs: update browser compatibility table`
+6. **Submit a pull request**: Describe your changes clearly
+
+### Code Style
+
+- Use TypeScript for all new code
+- Follow existing component patterns
+- Add comments for complex logic
+- Use meaningful variable names
+- Keep functions small and focused
+
+### Testing Checklist
+
+- [ ] Works on Chrome 108+
+- [ ] Works on Safari 17+ (macOS/iOS)
+- [ ] Works on Edge 108+
+- [ ] Graceful error handling for unsupported browsers
+- [ ] TypeScript compiles without errors
+- [ ] ESLint passes (`pnpm lint`)
+- [ ] Code is formatted (`pnpm format`)
+- [ ] Build succeeds (`pnpm build`)
+
+---
+
+## Support
+
+### Questions?
+
+- Open an issue on [GitHub Issues](https://github.com/yourusername/facewallet/issues)
+- Check the [Troubleshooting](#troubleshooting) section above
+- Review [WebAuthn documentation](https://w3c.github.io/webauthn/)
+
+### Found a Bug?
+
+- File a detailed bug report on GitHub Issues
+- Include: Browser version, OS, error messages, steps to reproduce
+- Screenshots or screen recordings are helpful
+
+### Security Issues?
+
+- **DO NOT** open a public issue for security vulnerabilities
+- Email security concerns to: [your-email@example.com]
+- Allow 48 hours for initial response
+
+---
+
+**Built with passion for a passwordless future.**
+
+No seed phrases. No private keys. Just biometrics.
