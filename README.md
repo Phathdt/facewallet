@@ -59,73 +59,81 @@ Here's how FaceWallet uses PRF + PIN to sign Ethereum messages:
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 2: Create Passkey + PIN (First Time Only)                 │
+│ Step 2: Setup Passkey (Smart Detection)                        │
 │ ───────────────────────────────────────────────────────────────│
-│ User creates 6-digit PIN: "123456"                             │
+│ User enters 6-digit PIN: "123456"                              │
+│ User clicks "Setup Passkey with PIN"                           │
 │                                                                 │
-│ pinHash = sha256("123456")                                      │
+│ Algorithm:                                                      │
+│ 1. pinHash = sha256("123456")                                   │
+│ 2. Try to authenticate with existing passkey:                  │
+│    navigator.credentials.get({                                  │
+│      extensions: { prf: { eval: { first: pinHash } } }         │
+│    })                                                           │
 │                                                                 │
-│ navigator.credentials.create({                                  │
-│   extensions: {                                                 │
-│     prf: {                                                      │
-│       eval: { first: pinHash }  // Deterministic PRF input     │
-│     }                                                           │
-│   }                                                             │
-│ })                                                              │
+│ If existing passkey found (e.g., synced from another device):  │
+│   ✓ Derive wallet from PRF output immediately                  │
+│   ✓ Cache wallet in memory                                     │
+│   ✓ Show: "Using existing passkey - ready to sign!"            │
+│   ✓ User can sign messages immediately (1 authentication only) │
 │                                                                 │
-│ Device prompts: "Use Face ID to create passkey" (Biometric 1)  │
-│ User authenticates with biometric (Face/Touch ID)              │
+│ If no existing passkey found:                                  │
+│   → Create new passkey:                                        │
+│     navigator.credentials.create({                              │
+│       extensions: { prf: { eval: { first: pinHash } } }        │
+│     })                                                          │
+│   → Show: "Passkey created successfully!"                      │
+│   → User needs to authenticate once more to unlock signing     │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 3: Authenticate Immediately to Get PRF Output             │
+│ Step 3: Authenticate to Unlock Signing (New Passkey Only)      │
 │ ───────────────────────────────────────────────────────────────│
-│ navigator.credentials.get({                                     │
-│   extensions: {                                                 │
-│     prf: {                                                      │
-│       eval: { first: pinHash }  // Same input                  │
-│     }                                                           │
-│   }                                                             │
-│ })                                                              │
+│ Only required if passkey was just created (not for existing)   │
 │                                                                 │
-│ Device prompts: "Use Face ID to verify" (Biometric 2)          │
-│ User authenticates with biometric again                        │
+│ User clicks "Authenticate with PIN"                            │
+│ User enters same PIN: "123456"                                 │
+│ Authenticate with biometric                                    │
 │                                                                 │
-│ prfOutput = assertion.getClientExtensionResults().prf.results   │
-└─────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ Step 4: Derive Private Key from PRF Output                     │
-│ ───────────────────────────────────────────────────────────────│
+│ prfOutput = credentials.get(...)                               │
 │ privateKey = keccak256(prfOutput)                              │
 │ wallet = new ethers.Wallet(privateKey)                         │
-│ derivedAddress = wallet.address  // e.g., 0xABC...123          │
 │                                                                 │
-│ Wallet is cached in session for fast signing                   │
+│ Wallet cached in memory for current session                    │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Step 4: Sign Messages (Using Cached Wallet)                    │
+│ ───────────────────────────────────────────────────────────────│
+│ wallet = getCachedWallet()  // From memory (in-memory only)    │
+│ signature = await wallet.signMessage(message)                  │
+│                                                                 │
+│ No biometric needed - wallet cached for current session!       │
+│ Cache cleared when:                                            │
+│ • User clicks "Logout"                                         │
+│ • User closes browser tab                                      │
+│ • User switches to different address                           │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │ Step 5: Cross-Device Usage (Same Passkey, Same PIN)            │
 │ ───────────────────────────────────────────────────────────────│
+│ Scenario: Created passkey on Mac, now using iPhone             │
+│                                                                 │
 │ On iPhone (passkey synced from Mac via iCloud):                │
+│ 1. Open new browser tab (no cache)                             │
+│ 2. Enter same PIN: "123456"                                    │
+│ 3. Click "Setup Passkey with PIN"                              │
+│ 4. App tries to authenticate with existing passkey             │
+│ 5. Device prompts: "Use Face ID to authenticate"               │
+│ 6. User authenticates with Face ID                             │
+│ 7. Existing passkey detected!                                  │
+│ 8. PRF(pinHash) → same output (PRF syncs with passkey!)        │
+│ 9. Wallet derived and cached immediately                       │
+│ 10. Show: "Using existing passkey - ready to sign!" ✅          │
 │                                                                 │
-│ 1. User enters same PIN: "123456"                              │
-│ 2. pinHash = sha256("123456")  // Same hash                    │
-│ 3. Device prompts: "Use Face ID to authenticate"               │
-│ 4. User authenticates with Face ID                             │
-│ 5. PRF(pinHash) = same output (PRF syncs with passkey!)        │
-│ 6. privateKey = keccak256(prfOutput)                           │
-│ 7. Same PRF output = SAME privateKey across devices! ✅         │
-└─────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ Step 6: Sign Message (Using Cached Wallet)                     │
-│ ───────────────────────────────────────────────────────────────│
-│ wallet = getCachedWallet()  // From session storage            │
-│ signature = await wallet.signMessage(message)                  │
-│                                                                 │
-│ No biometric needed - wallet cached for session!               │
-│ Cache expires after timeout or logout                          │
+│ Same PRF output = SAME privateKey across devices! ✅            │
+│ User can sign messages immediately (no second authentication)  │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -135,6 +143,8 @@ Here's how FaceWallet uses PRF + PIN to sign Ethereum messages:
 │ iPhone: PRF(sha256("123456")) → prfOutput → privateKey A       │
 │         ↓                                                       │
 │         Same PRF output = Same signature for the same message! │
+│                                                                 │
+│ No localStorage, no persistent cache - works across devices!   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -170,12 +180,17 @@ Here's how FaceWallet uses PRF + PIN to sign Ethereum messages:
 - Same passkey + same PIN on any device = same PRF output = identical private key
 - Works seamlessly across devices within same ecosystem (Mac ↔ iPhone, Chrome ↔ Android)
 
-**Non-Exportable Design**
+**Session-Based Wallet Caching**
 
-- Private keys never stored anywhere (not in memory, disk, or cloud)
-- Derived on-demand from PIN + credential ID
-- Immediately discarded after signing
-- Cannot be extracted, stolen, or lost
+- Private keys cached **in-memory only** during active session
+- Never stored to disk, localStorage, or cloud
+- Derived from PRF output using: `keccak256(PRF(sha256(PIN)))`
+- Cache automatically cleared when:
+  - User closes browser tab
+  - User clicks "Logout"
+  - User switches to different address
+- Each new session requires fresh authentication
+- Cannot be extracted, stolen, or persisted across sessions
 
 **Domain-Bound Security**
 
@@ -192,6 +207,17 @@ Here's how FaceWallet uses PRF + PIN to sign Ethereum messages:
 - PIN is intentionally NOT synced across devices (adds security layer)
 - Losing your PIN means losing access to that wallet (no recovery mechanism)
 
+**Smart Passkey Detection**
+
+- No localStorage or persistent cache used for passkey detection
+- Works seamlessly across devices and browsers
+- App intelligently detects existing passkeys:
+  - When you click "Setup Passkey", app first tries to authenticate
+  - If existing passkey found (e.g., synced from another device) → Reuses it
+  - If no passkey found → Creates new one
+- Prevents duplicate passkey creation
+- Single authentication when reusing existing passkey
+
 **Trade-offs**
 
 ✅ **Strengths:**
@@ -200,12 +226,15 @@ Here's how FaceWallet uses PRF + PIN to sign Ethereum messages:
 - Biometric + PIN dual-layer security
 - No seed phrases to manage
 - Cross-device passkey sync (iCloud/Google)
+- Smart passkey detection (no duplicate passkeys)
+- No persistent cache issues
 
 ⚠️ **Limitations:**
 
 - PIN must be memorized or securely stored
-- Wrong PIN creates different wallet (no verification without stored address)
+- Wrong PIN creates different wallet (deterministic derivation)
 - No "forgot PIN" recovery (by design - non-custodial)
+- Each new browser tab requires fresh authentication (session-based cache)
 
 **Forgot PIN?**
 
