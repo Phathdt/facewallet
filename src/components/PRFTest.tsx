@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { ethers } from 'ethers'
 import { AlertCircle, CheckCircle2, Info } from 'lucide-react'
+import { useAddress } from '@/contexts/AddressContext'
 
 export function PRFTest() {
+  const { activeAddress } = useAddress()
   const [address, setAddress] = useState('')
   const [credentialId, setCredentialId] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [testMode, setTestMode] = useState<'create' | 'existing'>('existing')
 
   const handleCreatePasskey = async () => {
     setIsLoading(true)
@@ -103,6 +107,93 @@ export function PRFTest() {
     }
   }
 
+  const handleUseExistingPasskey = async () => {
+    if (!activeAddress) {
+      setError('Please connect a wallet or enter an address on the Home page first')
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+    setAddress('')
+    setCredentialId('')
+
+    try {
+      // Check if WebAuthn is supported
+      if (!navigator.credentials || !window.PublicKeyCredential) {
+        throw new Error('WebAuthn is not supported in this browser')
+      }
+
+      // Detect Vercel deployment
+      const shouldOmitRpId = window.location.hostname.endsWith('.vercel.app')
+
+      // Authenticate with existing passkey using PRF
+      const credential = (await navigator.credentials.get({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          timeout: 60000,
+          userVerification: 'required',
+          ...(shouldOmitRpId ? {} : { rpId: window.location.hostname }),
+          extensions: {
+            prf: {
+              eval: {
+                first: new TextEncoder().encode('ecdsa-signing-key-v1'),
+              },
+            },
+          },
+        },
+      })) as PublicKeyCredential & {
+        getClientExtensionResults: () => {
+          prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } }
+        }
+      }
+
+      if (!credential) {
+        throw new Error('Failed to authenticate with passkey')
+      }
+
+      // Check PRF support and results
+      const prfResults = credential.getClientExtensionResults().prf
+      if (!prfResults?.enabled) {
+        throw new Error(
+          'PRF extension not supported on this device/authenticator'
+        )
+      }
+
+      if (!prfResults.results?.first) {
+        throw new Error('PRF output not available')
+      }
+
+      // Store credential ID
+      const credId = bufferToBase64(credential.rawId)
+      setCredentialId(credId)
+
+      // Derive private key from PRF output (same as production code)
+      const prfFirstResult = prfResults.results.first
+      const prfOutput =
+        prfFirstResult instanceof ArrayBuffer
+          ? new Uint8Array(prfFirstResult)
+          : new Uint8Array(prfFirstResult.buffer)
+      const privateKeyHex =
+        '0x' +
+        Array.from(prfOutput)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('')
+          .slice(0, 64)
+
+      // Create wallet and get address
+      const wallet = new ethers.Wallet(privateKeyHex)
+      setAddress(wallet.address)
+    } catch (err) {
+      console.error('PRF Test Error:', err)
+      setError(
+        err instanceof Error ? err.message : 'Failed to authenticate with passkey'
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const bufferToBase64 = (buffer: ArrayBuffer): string => {
     return btoa(String.fromCharCode(...new Uint8Array(buffer)))
   }
@@ -121,14 +212,19 @@ export function PRFTest() {
               <div className="text-sm text-blue-900">
                 <p className="mb-2 font-medium">Test Instructions:</p>
                 <ol className="list-inside list-decimal space-y-1 text-blue-700">
-                  <li>Click "Create Passkey with PRF" on your Mac/PC browser</li>
                   <li>
-                    Open this same page on your iPhone (same iCloud account)
+                    Choose "Use Existing Passkey" if you created one on the Home
+                    page
                   </li>
-                  <li>Click "Create Passkey with PRF" on iPhone</li>
+                  <li>Or choose "Create New Passkey" to test with a fresh one</li>
                   <li>
-                    Compare the addresses - if they match, PRF is deterministic
+                    Authenticate with biometrics to get the PRF-derived address
                   </li>
+                  <li>
+                    Open this same page on another device (iPhone/Mac) with same
+                    iCloud
+                  </li>
+                  <li>Use the same passkey and compare addresses</li>
                 </ol>
                 <p className="mt-3 font-medium text-blue-800">
                   Expected Result: Addresses will be DIFFERENT (PRF is
@@ -138,14 +234,66 @@ export function PRFTest() {
             </div>
           </div>
 
-          <Button
-            onClick={handleCreatePasskey}
-            disabled={isLoading}
-            className="w-full"
-            size="lg"
-          >
-            {isLoading ? 'Creating Passkey...' : 'Create Passkey with PRF'}
-          </Button>
+          <div className="mb-4 space-y-3">
+            <Label className="text-sm font-medium text-gray-700">
+              Choose Test Mode:
+            </Label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="testMode"
+                  value="existing"
+                  checked={testMode === 'existing'}
+                  onChange={() => setTestMode('existing')}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm text-gray-700">Use Existing Passkey</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="testMode"
+                  value="create"
+                  checked={testMode === 'create'}
+                  onChange={() => setTestMode('create')}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm text-gray-700">Create New Passkey</span>
+              </label>
+            </div>
+          </div>
+
+          {testMode === 'existing' ? (
+            <div className="space-y-4">
+              {activeAddress && (
+                <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-sm text-gray-600">
+                    <strong>Current Address:</strong> {activeAddress}
+                  </p>
+                </div>
+              )}
+              <Button
+                onClick={handleUseExistingPasskey}
+                disabled={isLoading}
+                className="w-full"
+                size="lg"
+              >
+                {isLoading
+                  ? 'Authenticating...'
+                  : 'Authenticate with Existing Passkey'}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              onClick={handleCreatePasskey}
+              disabled={isLoading}
+              className="w-full"
+              size="lg"
+            >
+              {isLoading ? 'Creating Passkey...' : 'Create New Passkey with PRF'}
+            </Button>
+          )}
 
           {error && (
             <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3">
@@ -162,7 +310,9 @@ export function PRFTest() {
                 <div className="flex gap-2">
                   <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
                   <p className="text-sm font-medium text-green-700">
-                    Passkey created successfully!
+                    {testMode === 'existing'
+                      ? 'Passkey authenticated successfully!'
+                      : 'Passkey created successfully!'}
                   </p>
                 </div>
               </div>
