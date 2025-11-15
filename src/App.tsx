@@ -18,7 +18,10 @@ function AppContent() {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
         <header className="bg-white p-6 shadow-sm">
           <div className="mx-auto flex max-w-7xl items-center justify-between">
-            <Link to="/" className="text-2xl font-bold text-gray-900 hover:text-gray-700">
+            <Link
+              to="/"
+              className="text-2xl font-bold text-gray-900 hover:text-gray-700"
+            >
               FaceWallet
             </Link>
             <nav className="flex gap-6">

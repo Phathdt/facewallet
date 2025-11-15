@@ -31,12 +31,14 @@ Traditional wallets require you to manage seed phrases (12-24 words) or private 
 FaceWallet uses a dual-layer security approach to protect your wallet and ensure consistent signatures across all devices:
 
 **Layer 1: Biometric Authentication (WebAuthn PRF)**
+
 - WebAuthn PRF extension requires biometric verification (Face ID, Touch ID, Windows Hello)
 - Protects against unauthorized passkey access
 - Hardware-backed by your device's secure enclave
 - Passkeys sync automatically via iCloud Keychain or Google Password Manager
 
 **Layer 2: PIN-Based Key Derivation**
+
 - Private key derived deterministically from: `keccak256(credential_id + pin)`
 - Same passkey + same PIN = same private key across ALL devices
 - PIN is memorized by you (not synced like passkey)
@@ -167,12 +169,14 @@ Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 **Trade-offs**
 
 ✅ **Strengths:**
+
 - Consistent signatures across all devices
 - Biometric + PIN dual-layer security
 - No seed phrases to manage
 - Cross-device passkey sync (iCloud/Google)
 
 ⚠️ **Limitations:**
+
 - PIN must be memorized or securely stored
 - Wrong PIN creates different wallet (no verification without stored address)
 - No "forgot PIN" recovery (by design - non-custodial)
@@ -180,6 +184,7 @@ Here's how FaceWallet uses PIN + Passkey to sign Ethereum messages:
 **Forgot PIN?**
 
 If you forget your PIN, you cannot recover access to that specific wallet. This is intentional:
+
 - Non-custodial design means no one can reset your PIN
 - Similar to losing a seed phrase in traditional wallets
 - You can create a NEW passkey with a NEW PIN for a different wallet
@@ -196,12 +201,14 @@ When we first implemented passkey-based signing using WebAuthn's PRF extension, 
 ### Why This Happened
 
 WebAuthn's PRF (Pseudo-Random Function) extension is **device-specific**:
+
 - PRF uses the device's Secure Enclave or TPM
 - Each device generates a unique PRF output
 - iCloud Keychain syncs the **credential ID**, not the PRF secret
 - Different PRF output = Different private key = Different signature
 
 Example:
+
 ```
 Mac:    PRF(biometric_secret_mac) → output_A → private_key_A → signature_A
 iPhone: PRF(biometric_secret_iphone) → output_B → private_key_B → signature_B
@@ -212,12 +219,14 @@ iPhone: PRF(biometric_secret_iphone) → output_B → private_key_B → signatur
 After researching various approaches, we implemented a **two-layer security model**:
 
 #### Layer 1: Biometric Authentication (WebAuthn PRF)
+
 - User authenticates with Face ID/Touch ID/Windows Hello
 - PRF extension verifies user identity
 - Protects against unauthorized passkey access
 - Hardware-backed security
 
 #### Layer 2: PIN-Based Key Derivation
+
 - Private key derived from: `keccak256(credential_id + pin)`
 - Credential ID syncs via iCloud/Google Keychain
 - User memorizes 6-digit PIN
@@ -246,11 +255,13 @@ Authentication (iPhone):
 Initially, we considered storing credential metadata in IndexedDB for verification. However:
 
 **IndexedDB limitations:**
+
 - Only accessible within one browser
 - Doesn't sync across devices or browsers
 - Defeats the purpose of passkey sync
 
 **Better approach:**
+
 - Passkeys sync automatically via iCloud/Google
 - PIN is memorized by user (like a password)
 - No local storage needed
@@ -259,17 +270,20 @@ Initially, we considered storing credential metadata in IndexedDB for verificati
 ### Security Model
 
 **What protects your wallet:**
+
 1. **Biometric authentication** - Can't use passkey without Face ID/Touch ID
 2. **6-digit PIN** - Required to derive the correct private key
 3. **Hardware-backed security** - PRF uses Secure Enclave/TPM
 4. **No private key storage** - Keys derived on-demand, never stored
 
 **Trade-offs:**
+
 - PIN must be memorized or securely written down
 - Wrong PIN = different wallet (no recovery without correct PIN)
 - Credential ID is semi-public (managed by browser, but PIN adds security layer)
 
 **Security Level**: High
+
 - Requires **both** biometric authentication AND correct PIN
 - More secure than password-only wallets
 - Less complex than full seed phrase management
@@ -278,15 +292,16 @@ Initially, we considered storing credential metadata in IndexedDB for verificati
 
 We evaluated 5 different options for cross-device consistency:
 
-| Approach | Security | UX | Implementation | Chosen |
-|----------|----------|-----|----------------|--------|
-| Credential ID only | Low | ⭐⭐⭐⭐⭐ | Simple | ❌ Too insecure |
-| **Credential ID + PIN** | High | ⭐⭐⭐⭐ | Medium | ✅ **Selected** |
-| Server KMS | Very High | ⭐⭐⭐ | Complex | ❌ Needs backend |
-| Credential ID + Salt | High | ⭐⭐ | Medium | ❌ Manual sync |
-| Username-based | Very Low | ⭐⭐⭐⭐⭐ | Simple | ❌ Not secure |
+| Approach                | Security  | UX         | Implementation | Chosen           |
+| ----------------------- | --------- | ---------- | -------------- | ---------------- |
+| Credential ID only      | Low       | ⭐⭐⭐⭐⭐ | Simple         | ❌ Too insecure  |
+| **Credential ID + PIN** | High      | ⭐⭐⭐⭐   | Medium         | ✅ **Selected**  |
+| Server KMS              | Very High | ⭐⭐⭐     | Complex        | ❌ Needs backend |
+| Credential ID + Salt    | High      | ⭐⭐       | Medium         | ❌ Manual sync   |
+| Username-based          | Very Low  | ⭐⭐⭐⭐⭐ | Simple         | ❌ Not secure    |
 
 **Why we chose PIN-based approach:**
+
 - Best balance of security and user experience
 - No backend infrastructure required
 - Works offline
@@ -297,13 +312,13 @@ We evaluated 5 different options for cross-device consistency:
 
 The implementation works on browsers supporting WebAuthn PRF extension:
 
-| Browser | PRF Support | Version | Notes |
-|---------|-------------|---------|-------|
-| Chrome | ✅ | 108+ | Full support |
-| Safari | ✅ | 17+ | macOS 14+, iOS 17+ |
-| Edge | ✅ | 108+ | Chromium-based |
-| Brave | ✅ | 1.47+ | Chromium-based |
-| Firefox | ❌ | N/A | No PRF support yet |
+| Browser | PRF Support | Version | Notes              |
+| ------- | ----------- | ------- | ------------------ |
+| Chrome  | ✅          | 108+    | Full support       |
+| Safari  | ✅          | 17+     | macOS 14+, iOS 17+ |
+| Edge    | ✅          | 108+    | Chromium-based     |
+| Brave   | ✅          | 1.47+   | Chromium-based     |
+| Firefox | ❌          | N/A     | No PRF support yet |
 
 ### Vercel Deployment & RP ID
 

@@ -112,23 +112,22 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
     if (addressChanged) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCachedWallet(null)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setIsAuthenticated(false)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setPreviousAddress(activeAddress)
     }
 
     // Check passkey status
     if (!activeAddress) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHasPasskey(false)
       return
     }
 
     // Check if we've registered a passkey in this session
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setHasPasskey(registeredAddresses.has(activeAddress.toLowerCase()))
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setIsChecking(false)
   }, [activeAddress, registeredAddresses, previousAddress])
 
