@@ -65,7 +65,7 @@ export class PasskeyECDSASigner {
 
   /**
    * Register a new passkey for a wallet address
-   * First checks if a passkey already exists, if so, reuses it
+   * First checks if a passkey already exists, if so, reuses it and derives wallet
    * Only creates a new passkey if none exists
    * Uses PRF(sha256(PIN)) approach for higher security
    */
@@ -75,6 +75,8 @@ export class PasskeyECDSASigner {
   ): Promise<{
     credentialId: string
     isExisting: boolean
+    wallet?: ethers.Wallet
+    address?: string
   }> {
     // Validate PIN
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
@@ -115,11 +117,29 @@ export class PasskeyECDSASigner {
       })) as PublicKeyCredential
 
       if (existingCredential) {
-        // Passkey already exists! Return the existing credential ID
+        // Passkey already exists! Derive wallet from PRF output
         console.log('Using existing passkey for this address')
+
+        const extensionResults =
+          existingCredential.getClientExtensionResults() as any
+        const prfResult = extensionResults.prf
+
+        if (!prfResult?.results?.first) {
+          throw new Error('Failed to get PRF output from existing passkey')
+        }
+
+        // Derive private key from PRF output
+        const prfOutput = new Uint8Array(prfResult.results.first)
+        const privateKeyHex = keccak256(prfOutput)
+
+        // Create wallet from PRF-derived key
+        const wallet = new ethers.Wallet(privateKeyHex)
+
         return {
           credentialId: this.bufferToBase64(existingCredential.rawId),
           isExisting: true,
+          wallet,
+          address: wallet.address,
         }
       }
     } catch {

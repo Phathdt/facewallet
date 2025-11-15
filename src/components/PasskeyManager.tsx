@@ -15,6 +15,7 @@ export function PasskeyManager() {
     authenticate,
     logout,
     refreshPasskey,
+    setWallet,
   } = usePasskey()
   const [pin, setPin] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -37,8 +38,13 @@ export function PasskeyManager() {
       const result = await signer.register(activeAddress, pin)
       refreshPasskey() // Notify context to refresh passkey status
 
+      // If existing passkey found and wallet derived, cache it
+      if (result.wallet) {
+        setWallet(result.wallet)
+      }
+
       if (result.isExisting) {
-        setSuccess('Using existing passkey for this address!')
+        setSuccess('Using existing passkey - ready to sign!')
       } else {
         setSuccess('Passkey created successfully!')
       }

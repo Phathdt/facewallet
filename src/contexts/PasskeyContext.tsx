@@ -56,6 +56,13 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
     [activeAddress, signer, isAuthenticated, cachedWallet]
   )
 
+  // Set wallet and mark as authenticated (used after register finds existing passkey)
+  const setWallet = useCallback((wallet: ethers.Wallet) => {
+    setCachedWallet(wallet)
+    setIsAuthenticated(true)
+    setHasPasskey(true)
+  }, [])
+
   // Logout and clear cached wallet
   const logout = useCallback(() => {
     setCachedWallet(null)
@@ -93,6 +100,7 @@ export function PasskeyProvider({ children }: { children: ReactNode }) {
         checkPasskey,
         refreshPasskey,
         authenticate,
+        setWallet,
         logout,
       }}
     >

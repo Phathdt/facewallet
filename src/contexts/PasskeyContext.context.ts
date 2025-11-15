@@ -11,6 +11,7 @@ export interface PasskeyContextValue {
   checkPasskey: () => Promise<void>
   refreshPasskey: () => void
   authenticate: (pin: string) => Promise<ethers.Wallet>
+  setWallet: (wallet: ethers.Wallet) => void
   logout: () => void
 }
 
