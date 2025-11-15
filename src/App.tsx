@@ -8,7 +8,7 @@ import { AddressProvider } from '@/contexts/AddressContext'
 import { PasskeyProvider } from '@/contexts/PasskeyContext'
 import { BrowserCompatibility } from '@/components/BrowserCompatibility'
 import { Home } from '@/pages/Home'
-import { PRFTest } from '@/components/PRFTest'
+import { PRFTest } from '@/pages/PRFTest'
 
 const queryClient = new QueryClient()
 
